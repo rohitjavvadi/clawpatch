@@ -297,9 +297,15 @@ async function kotlinRoleSeeds(
     return [];
   }
   const projectPackages = await gradleProjectPackages(root, sourceFiles, kotlinFiles);
+  const kotlinPackageTypes = kotlinPackageDeclarations(kotlinFiles);
 
   for (const { filePath, info } of kotlinFiles) {
-    const frameworkEvidence = kotlinFrameworkRoleEvidence(info, tags, projectPackages);
+    const frameworkEvidence = kotlinFrameworkRoleEvidence(
+      info,
+      tags,
+      projectPackages,
+      kotlinPackageTypes,
+    );
     const evidence =
       frameworkEvidence.length > 0 ? frameworkEvidence : kotlinPathRoleEvidence(filePath, tags);
     for (const item of evidence) {
@@ -404,6 +410,21 @@ async function gradleProjectPackages(
   return packages;
 }
 
+function kotlinPackageDeclarations(
+  kotlinFiles: Array<{ filePath: string; info: KotlinFileInfo }>,
+): Map<string, Set<string>> {
+  const declarations = new Map<string, Set<string>>();
+  for (const { info } of kotlinFiles) {
+    const packageName = info.packageName ?? "";
+    const packageTypes = declarations.get(packageName) ?? new Set<string>();
+    for (const declaration of info.declarations) {
+      packageTypes.add(declaration.name);
+    }
+    declarations.set(packageName, packageTypes);
+  }
+  return declarations;
+}
+
 async function jvmRoleSeeds(
   root: string,
   buildFile: string,
@@ -477,6 +498,7 @@ function kotlinFrameworkRoleEvidence(
   info: KotlinFileInfo,
   tags: string[],
   projectPackages: Set<string>,
+  kotlinPackageTypes: Map<string, Set<string>>,
 ): KotlinRoleEvidence[] {
   const evidence: KotlinRoleEvidence[] = [];
   const isAndroid = tags.includes("android");
@@ -702,8 +724,8 @@ function kotlinFrameworkRoleEvidence(
     }
   }
   if (!isAndroid) {
-    evidence.push(...kotlinDeclarationRoleEvidence(info, projectPackages));
-    evidence.push(...kotlinFunctionReturnRoleEvidence(info, projectPackages));
+    evidence.push(...kotlinDeclarationRoleEvidence(info, projectPackages, kotlinPackageTypes));
+    evidence.push(...kotlinFunctionReturnRoleEvidence(info, projectPackages, kotlinPackageTypes));
   }
 
   return dedupeKotlinEvidence(evidence);
@@ -712,6 +734,7 @@ function kotlinFrameworkRoleEvidence(
 function kotlinDeclarationRoleEvidence(
   info: KotlinFileInfo,
   projectPackages: Set<string>,
+  kotlinPackageTypes: Map<string, Set<string>>,
 ): KotlinRoleEvidence[] {
   const evidence: KotlinRoleEvidence[] = [];
   for (const declaration of info.declarations) {
@@ -723,7 +746,7 @@ function kotlinDeclarationRoleEvidence(
       });
     }
     for (const type of declaration.supertypes) {
-      const full = kotlinImportForType(info, type);
+      const full = kotlinImportForType(info, type, kotlinPackageTypes);
       if (full !== undefined && isExternalProjectImport(full, projectPackages)) {
         evidence.push({
           role: "server-framework-component",
@@ -739,10 +762,11 @@ function kotlinDeclarationRoleEvidence(
 function kotlinFunctionReturnRoleEvidence(
   info: KotlinFileInfo,
   projectPackages: Set<string>,
+  kotlinPackageTypes: Map<string, Set<string>>,
 ): KotlinRoleEvidence[] {
   const evidence: KotlinRoleEvidence[] = [];
   for (const type of info.functionReturnTypes) {
-    const full = kotlinImportForType(info, type);
+    const full = kotlinImportForType(info, type, kotlinPackageTypes);
     if (full !== undefined && isExternalProjectImport(full, projectPackages)) {
       evidence.push({
         role: "server-framework-component",
@@ -754,12 +778,20 @@ function kotlinFunctionReturnRoleEvidence(
   return evidence;
 }
 
-function kotlinImportForType(info: KotlinFileInfo, type: string): string | undefined {
+function kotlinImportForType(
+  info: KotlinFileInfo,
+  type: string,
+  kotlinPackageTypes: Map<string, Set<string>>,
+): string | undefined {
   const direct = info.imports.get(type);
   if (direct !== undefined) {
     return direct;
   }
-  if (info.declarations.some((declaration) => declaration.name === type)) {
+  const packageName = info.packageName ?? "";
+  if (
+    info.declarations.some((declaration) => declaration.name === type) ||
+    kotlinPackageTypes.get(packageName)?.has(type) === true
+  ) {
     return undefined;
   }
   for (const full of info.imports.values()) {
@@ -1362,14 +1394,16 @@ async function gradleTags(
 }
 
 function hasAppliedAndroidPlugin(buildSource: string): boolean {
-  return buildSource.split(/\r?\n/u).some((line) => {
-    if (/\bapply\s+false\b/u.test(line)) {
-      return false;
-    }
-    return /\bid\s*\(?\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']\s*\)?/u.test(
-      line,
-    );
-  });
+  return stripJavaComments(buildSource)
+    .split(/\r?\n/u)
+    .some((line) => {
+      if (/\bapply\s+false\b/u.test(line)) {
+        return false;
+      }
+      return /\bid\s*\(?\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']\s*\)?/u.test(
+        line,
+      );
+    });
 }
 
 function isGradleSourceFile(path: string): boolean {

@@ -2942,6 +2942,46 @@ describe("mapFeatures", () => {
     ).toBe(false);
   });
 
+  it("does not treat commented Android plugin declarations as Android modules", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-commented-plugin-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(
+      root,
+      "build.gradle.kts",
+      [
+        "plugins {",
+        '  // id("com.android.application")',
+        '  id("org.jetbrains.kotlin.jvm")',
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/api/OrderController.kt",
+      [
+        "package com.example.api",
+        "",
+        "import org.springframework.web.bind.annotation.RestController",
+        "",
+        "@RestController",
+        "class OrderController",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const web = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin server role web entrypoint "),
+    );
+
+    expect(web?.source).toBe("kotlin-server-role-web-entrypoint");
+    expect(
+      result.features.some((feature) => feature.source.startsWith("kotlin-android-role-")),
+    ).toBe(false);
+  });
+
   it("maps Kotlin role evidence from wildcard imports", async () => {
     const root = await fixtureRoot("clawpatch-kotlin-wildcard-imports-");
     await writeFixture(root, "settings.gradle.kts", 'pluginManagement {}\ninclude(":app")\n');
@@ -3007,6 +3047,44 @@ describe("mapFeatures", () => {
         "import org.scheduler.*",
         "",
         "data class Job(val id: String)",
+        "",
+        "class JobFactory {",
+        '  fun buildJob(): Job = Job("1")',
+        "}",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-server-role-framework-component" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/kotlin/com/example/jobs/JobFactory.kt",
+          ),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not resolve package-local Kotlin declarations through wildcard imports", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-package-local-wildcard-type-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/jobs/Job.kt",
+      "package com.example.jobs\nclass Job(val id: String)\n",
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/jobs/JobFactory.kt",
+      [
+        "package com.example.jobs",
+        "",
+        "import org.scheduler.*",
         "",
         "class JobFactory {",
         '  fun buildJob(): Job = Job("1")',
