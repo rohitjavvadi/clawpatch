@@ -3010,6 +3010,36 @@ describe("mapFeatures", () => {
     expect(viewModel?.source).toBe("kotlin-android-role-view-model");
   });
 
+  it("keeps Android plugin declarations before same-line unrelated apply false entries", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-same-line-apply-false-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(
+      root,
+      "build.gradle.kts",
+      'plugins { id("com.android.application"); id("org.jetbrains.kotlin.jvm") apply false }\n',
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/ui/MainViewModel.kt",
+      [
+        "package com.example.ui",
+        "",
+        "import androidx.lifecycle.ViewModel",
+        "",
+        "class MainViewModel : ViewModel()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const viewModel = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin Android role view model "),
+    );
+
+    expect(viewModel?.source).toBe("kotlin-android-role-view-model");
+  });
+
   it("detects Android Kotlin roles from applied Gradle plugin syntax without a manifest", async () => {
     const root = await fixtureRoot("clawpatch-kotlin-android-apply-plugin-role-");
     await writeFixture(root, "settings.gradle", "pluginManagement {}\n");
@@ -3341,6 +3371,35 @@ describe("mapFeatures", () => {
     ).toBe(false);
   });
 
+  it("maps fully qualified Kotlin JAX-RS annotations as server web entrypoints", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-qualified-jaxrs-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/api/OrderResource.kt",
+      [
+        "package com.example.api",
+        "",
+        '@jakarta.ws.rs.Path("/orders")',
+        "class OrderResource",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const web = result.features.find(
+      (feature) =>
+        feature.source === "kotlin-server-role-web-entrypoint" &&
+        feature.ownedFiles.some(
+          (file) => file.path === "src/main/kotlin/com/example/api/OrderResource.kt",
+        ),
+    );
+
+    expect(web?.ownedFiles[0]?.reason).toContain("server web annotation @Path");
+  });
+
   it("does not resolve Kotlin built-in return types through wildcard imports", async () => {
     const root = await fixtureRoot("clawpatch-kotlin-builtin-wildcard-type-");
     await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
@@ -3577,6 +3636,44 @@ describe("mapFeatures", () => {
       "src/main/kotlin/com/example/jobs/JobFactory.kt",
     );
     expect(framework?.ownedFiles[0]?.reason).toContain("external type org.scheduler.");
+  });
+
+  it("preserves path roles for Kotlin interfaces", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-interface-path-roles-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/network/RemoteApi.kt",
+      "package com.example.network\ninterface RemoteApi { fun call(): String }\n",
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/repository/UserRepository.kt",
+      "package com.example.repository\ninterface UserRepository { fun users(): List<String> }\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-server-role-external-client" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/kotlin/com/example/network/RemoteApi.kt",
+          ),
+      ),
+    ).toBe(true);
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-server-role-persistence-boundary" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/kotlin/com/example/repository/UserRepository.kt",
+          ),
+      ),
+    ).toBe(true);
   });
 
   it("maps Kotlin supertypes after annotated primary constructors", async () => {

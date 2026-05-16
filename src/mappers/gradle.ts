@@ -173,6 +173,7 @@ type KotlinDeclaration = {
 type KotlinFileInfo = {
   packageName: string | null;
   annotations: Set<string>;
+  qualifiedAnnotations: Set<string>;
   imports: Map<string, string>;
   declarations: KotlinDeclaration[];
   functionReturnTypes: Set<string>;
@@ -306,8 +307,10 @@ async function kotlinRoleSeeds(
       projectPackages,
       kotlinPackageTypes,
     );
-    const evidence =
-      frameworkEvidence.length > 0 ? frameworkEvidence : kotlinPathRoleEvidence(filePath, tags);
+    const pathEvidence = kotlinPathRoleEvidence(filePath, tags);
+    const evidence = frameworkEvidence.every((item) => item.role === "server-extension-boundary")
+      ? [...frameworkEvidence, ...pathEvidence]
+      : frameworkEvidence;
     for (const item of evidence) {
       const byFile = matches.get(item.role) ?? new Map();
       const reasons = byFile.get(filePath) ?? [];
@@ -897,7 +900,11 @@ function isKotlinServerWebAnnotation(info: KotlinFileInfo, annotation: string): 
     return false;
   }
   const full = info.imports.get(annotation);
-  return full !== undefined && /^(?:javax|jakarta)\.ws\.rs\./u.test(full);
+  return (
+    (full !== undefined && /^(?:javax|jakarta)\.ws\.rs\./u.test(full)) ||
+    info.qualifiedAnnotations.has(`javax.ws.rs.${annotation}`) ||
+    info.qualifiedAnnotations.has(`jakarta.ws.rs.${annotation}`)
+  );
 }
 
 function parseJavaFile(source: string): JavaFileInfo {
@@ -957,12 +964,16 @@ function parseKotlinFile(source: string): KotlinFileInfo {
   }
 
   const annotations = new Set<string>();
+  const qualifiedAnnotations = new Set<string>();
   for (const match of stripped.matchAll(
     /@(?:[A-Za-z_][A-Za-z0-9_]*:)?([A-Za-z_][A-Za-z0-9_.]*)/gu,
   )) {
     const raw = match[1];
     if (raw !== undefined) {
       annotations.add(raw.split(".").at(-1) ?? raw);
+      if (raw.includes(".")) {
+        qualifiedAnnotations.add(raw);
+      }
     }
   }
 
@@ -979,6 +990,7 @@ function parseKotlinFile(source: string): KotlinFileInfo {
   return {
     packageName,
     annotations,
+    qualifiedAnnotations,
     imports,
     declarations: parseKotlinDeclarations(stripped),
     functionReturnTypes,
@@ -1453,22 +1465,26 @@ function hasAppliedAndroidPlugin(buildSource: string): boolean {
   const lines = source.split(/\r?\n/u);
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] ?? "";
-    if (!androidPluginIdPattern().test(line)) {
-      continue;
-    }
-    let applyFalse = /\bapply\s+false\b|\.\s*apply\s*\(\s*false\s*\)/u.test(line);
-    for (let next = index + 1; next < lines.length; next += 1) {
-      const nextLine = lines[next] ?? "";
-      if (isGradlePluginDeclarationLine(nextLine)) {
-        break;
+    for (const match of line.matchAll(androidPluginIdPattern())) {
+      const start = match.index ?? 0;
+      const segmentEnd = line.indexOf(";", start);
+      const sameLineSegment = line.slice(start, segmentEnd === -1 ? undefined : segmentEnd);
+      let applyFalse = /\bapply\s+false\b|\.\s*apply\s*\(\s*false\s*\)/u.test(sameLineSegment);
+      if (segmentEnd === -1) {
+        for (let next = index + 1; next < lines.length; next += 1) {
+          const nextLine = lines[next] ?? "";
+          if (isGradlePluginDeclarationLine(nextLine)) {
+            break;
+          }
+          if (/\bapply\s+false\b|\.\s*apply\s*\(\s*false\s*\)/u.test(nextLine)) {
+            applyFalse = true;
+            break;
+          }
+        }
       }
-      if (/\bapply\s+false\b|\.\s*apply\s*\(\s*false\s*\)/u.test(nextLine)) {
-        applyFalse = true;
-        break;
+      if (!applyFalse) {
+        return true;
       }
-    }
-    if (!applyFalse) {
-      return true;
     }
   }
   return (
@@ -1482,7 +1498,7 @@ function hasAppliedAndroidPlugin(buildSource: string): boolean {
 }
 
 function androidPluginIdPattern(): RegExp {
-  return /\bid\s*\(?\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']\s*\)?/u;
+  return /\bid\s*\(?\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']\s*\)?/gu;
 }
 
 function isGradlePluginDeclarationLine(line: string): boolean {
