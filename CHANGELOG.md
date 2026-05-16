@@ -17,6 +17,7 @@
 - Improved Node/TypeScript mapping for large workspaces by splitting package source trees into bounded review groups with package-local tests.
 - Added generic nested SwiftPM, Apple/Xcode, and Gradle/Android app mapping.
 - Fixed Codex provider execution on Windows paths with spaces and npm `.cmd` shims, thanks @1berto.
+- Fixed `clawpatch fix` so feature-specific validation commands run during dry-run previews and applied fix validation, thanks @rohitjavvadi.
 
 ## 0.1.0 - 2026-05-15
 
