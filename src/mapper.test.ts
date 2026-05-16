@@ -447,6 +447,30 @@ describe("mapFeatures", () => {
     ]);
   });
 
+  it("keeps test-prefixed Ruby sources under lib reviewable", async () => {
+    const root = await fixtureRoot("clawpatch-map-ruby-test-prefixed-source-");
+    await writeFixture(root, "lib/test_client.rb", "module TestClient\nend\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const source = result.features.find((feature) => feature.title === "Ruby source lib");
+
+    expect(project.detected.languages).toContain("ruby");
+    expect(source?.ownedFiles.map((ref) => ref.path)).toContain("lib/test_client.rb");
+  });
+
+  it("maps scripts directory Ruby files as source only", async () => {
+    const root = await fixtureRoot("clawpatch-map-ruby-scripts-source-");
+    await writeFixture(root, "Gemfile", "source 'https://rubygems.org'\n");
+    await writeFixture(root, "scripts/support.rb", "module Support\nend\n");
+
+    const result = await mapFeatures(root, await detectProject(root), []);
+    const titles = result.features.map((feature) => feature.title);
+
+    expect(titles).toContain("Ruby source scripts");
+    expect(titles).not.toContain("Ruby CLI command support.rb");
+  });
+
   it("ignores generated nested gemspec artifacts", async () => {
     const root = await fixtureRoot("clawpatch-map-ruby-generated-gemspec-");
     await writeFixture(root, "package.json", JSON.stringify({ name: "node-only" }));

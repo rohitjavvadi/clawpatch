@@ -991,7 +991,7 @@ async function collectPythonFrameworkScanFiles(
 }
 
 async function containsReviewableRubyFile(root: string): Promise<boolean> {
-  if (await containsFileMatching(root, 0, isReviewableRubyFileName)) {
+  if (await containsFileMatching(root, 0, isRootReviewableRubyFileName)) {
     return true;
   }
   for (const prefix of ["app", "lib"]) {
@@ -1010,11 +1010,14 @@ async function containsReviewableRubyFile(root: string): Promise<boolean> {
 function isReviewableRubyFileName(entry: string): boolean {
   return (
     entry.endsWith(".rb") &&
-    !entry.startsWith("test_") &&
     !entry.endsWith("_spec.rb") &&
     !entry.endsWith("_test.rb") &&
     !/(?:generated|\.gen)\.rb$/iu.test(entry)
   );
+}
+
+function isRootReviewableRubyFileName(entry: string): boolean {
+  return isReviewableRubyFileName(entry) && !entry.startsWith("test_");
 }
 
 async function containsRubyExecutableSource(dir: string, remainingDepth: number): Promise<boolean> {

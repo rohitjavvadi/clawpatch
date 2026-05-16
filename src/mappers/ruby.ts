@@ -33,7 +33,7 @@ type RubyProjectInfo = {
 
 const metadataFiles = ["Gemfile", "gems.rb", "Rakefile", "config.ru"] as const;
 const sourceRoots = ["app", "lib", "scripts"] as const;
-const executableRoots = ["exe", "bin", "script", "scripts"] as const;
+const executableRoots = ["exe", "bin", "script"] as const;
 const railsBinstubs = new Set(["bundle", "rails", "rake", "setup", "spring", "yarn"]);
 const sourceGroupMaxOwnedFiles = 12;
 const sourceGroupMaxTests = 8;
