@@ -4,6 +4,7 @@ import { configSeeds } from "./mappers/config.js";
 import { goSeeds } from "./mappers/go.js";
 import { appleSeeds } from "./mappers/apple.js";
 import { gradleSeeds } from "./mappers/gradle.js";
+import { laravelSeeds } from "./mappers/laravel.js";
 import { nextSeeds } from "./mappers/next.js";
 import { nodeSeeds } from "./mappers/node.js";
 import { pythonSeeds } from "./mappers/python.js";
@@ -34,6 +35,7 @@ const featureMappers: FeatureMapper[] = [
   { name: "swift", map: swiftSeeds },
   { name: "apple", map: appleSeeds },
   { name: "gradle", map: gradleSeeds },
+  { name: "laravel", map: laravelSeeds },
   { name: "config", map: configSeeds },
 ];
 
@@ -53,7 +55,7 @@ export async function mapFeatures(
       seed.kind,
       seed.source,
       seed.entryPath,
-      seed.command ?? seed.route ?? seed.symbol ?? "",
+      seed.identityKey ?? seed.command ?? seed.route ?? seed.symbol ?? "",
     ]);
     const previous = existingById.get(featureId);
     const discoveredTests =
