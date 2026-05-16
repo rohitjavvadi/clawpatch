@@ -928,7 +928,12 @@ function isRubyTestPath(path: string): boolean {
 
 function isRubyMinitestPath(path: string): boolean {
   const name = basename(path);
-  return name.endsWith("_test.rb") || (/^test_.+\.rb$/u.test(name) && !isRubyTestHelper(name));
+  return (
+    name.endsWith("_test.rb") ||
+    (/^test_.+\.rb$/u.test(name) &&
+      !isRubyTestHelper(name) &&
+      (path === name || path.startsWith("test/")))
+  );
 }
 
 function isRubyTestHelper(name: string): boolean {

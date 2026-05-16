@@ -1057,12 +1057,16 @@ async function containsRubySpecFile(root: string, maxDepth: number): Promise<boo
 }
 
 async function containsRubyTestFile(root: string, maxDepth: number): Promise<boolean> {
-  return containsFileMatching(
-    root,
-    maxDepth,
-    (entry) =>
-      entry.endsWith("_test.rb") ||
-      (/^test_.+\.rb$/u.test(entry) && !/^test_helpers?\.rb$/u.test(entry)),
+  return (
+    (await containsFileMatching(root, 0, isRubyMinitestFileName)) ||
+    (await containsFileMatching(join(root, "test"), maxDepth, isRubyMinitestFileName))
+  );
+}
+
+function isRubyMinitestFileName(entry: string): boolean {
+  return (
+    entry.endsWith("_test.rb") ||
+    (/^test_.+\.rb$/u.test(entry) && !/^test_helpers?\.rb$/u.test(entry))
   );
 }
 

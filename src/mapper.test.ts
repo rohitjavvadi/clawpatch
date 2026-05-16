@@ -417,6 +417,7 @@ describe("mapFeatures", () => {
     const root = await fixtureRoot("clawpatch-map-ruby-test-helper-");
     await writeFixture(root, "Gemfile", "source 'https://rubygems.org'\n");
     await writeFixture(root, "lib/test_helper.rb", "module TestHelper\nend\n");
+    await writeFixture(root, "lib/test_utils.rb", "module TestUtils\nend\n");
     await writeFixture(root, "test/test_helper.rb", "require 'minitest/autorun'\n");
 
     const project = await detectProject(root);
@@ -426,6 +427,7 @@ describe("mapFeatures", () => {
     expect(project.detected.commands.test).toBeNull();
     expect(result.features.map((feature) => feature.title)).not.toContain("Ruby test suite test");
     expect(owned).toContain("lib/test_helper.rb");
+    expect(owned).toContain("lib/test_utils.rb");
     expect(owned).not.toContain("test/test_helper.rb");
   });
 
