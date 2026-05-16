@@ -202,7 +202,7 @@ async function gradleProjectSeeds(root: string, gradleRoot: string): Promise<Fea
     const testFiles = (await walk(root, [sourceRoot]))
       .filter(isGradleSourceFile)
       .filter((file) => isGradleTestFile(moduleRoot, file));
-    const tags = gradleTags(buildFile, sourceFiles);
+    const tags = await gradleTags(root, buildFile, sourceFiles);
 
     seeds.push({
       title: `Gradle module ${moduleRoot}`,
@@ -292,6 +292,9 @@ async function kotlinRoleSeeds(
   for (const filePath of sourceFiles.filter((file) => file.endsWith(".kt"))) {
     const source = await readFile(join(root, filePath), "utf8");
     kotlinFiles.push({ filePath, info: parseKotlinFile(source) });
+  }
+  if (kotlinFiles.length === 0) {
+    return [];
   }
   const projectPackages = await gradleProjectPackages(root, sourceFiles, kotlinFiles);
 
@@ -752,6 +755,9 @@ function kotlinImportForType(info: KotlinFileInfo, type: string): string | undef
   const direct = info.imports.get(type);
   if (direct !== undefined) {
     return direct;
+  }
+  if (info.declarations.some((declaration) => declaration.name === type)) {
+    return undefined;
   }
   for (const full of info.imports.values()) {
     if (full.endsWith(".*")) {
@@ -1330,7 +1336,11 @@ function associatedGradleTests(files: string[], testFiles: string[]): SeedTestRe
     .map((path) => ({ path, command: null }));
 }
 
-function gradleTags(buildFile: string, sourceFiles: string[]): string[] {
+async function gradleTags(
+  root: string,
+  buildFile: string,
+  sourceFiles: string[],
+): Promise<string[]> {
   const tags = ["gradle"];
   if (
     buildFile.endsWith(".kts") ||
@@ -1338,7 +1348,11 @@ function gradleTags(buildFile: string, sourceFiles: string[]): string[] {
   ) {
     tags.push("kotlin");
   }
-  if (sourceFiles.some((file) => file.endsWith("AndroidManifest.xml"))) {
+  const buildSource = await readFile(join(root, buildFile), "utf8").catch(() => "");
+  if (
+    sourceFiles.some((file) => file.endsWith("AndroidManifest.xml")) ||
+    /\bcom\.android\.(?:application|library|dynamic-feature|test)\b/u.test(buildSource)
+  ) {
     tags.push("android");
   }
   return tags;

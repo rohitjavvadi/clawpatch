@@ -2859,6 +2859,46 @@ describe("mapFeatures", () => {
     ).toBe(false);
   });
 
+  it("detects Android Kotlin roles from Gradle plugins without a manifest", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-plugin-role-");
+    await writeFixture(root, "settings.gradle.kts", 'pluginManagement {}\ninclude(":ui")\n');
+    await writeFixture(
+      root,
+      "build.gradle.kts",
+      'plugins { id("com.android.library") version "1.0" apply false }\n',
+    );
+    await writeFixture(root, "ui/build.gradle.kts", 'plugins { id("com.android.library") }\n');
+    await writeFixture(
+      root,
+      "ui/src/main/kotlin/com/example/ui/MainViewModel.kt",
+      [
+        "package com.example.ui",
+        "",
+        "import androidx.lifecycle.ViewModel",
+        "",
+        "class MainViewModel : ViewModel()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const viewModel = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin Android role view model "),
+    );
+
+    expect(viewModel?.source).toBe("kotlin-android-role-view-model");
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-server-role-framework-component" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "ui/src/main/kotlin/com/example/ui/MainViewModel.kt",
+          ),
+      ),
+    ).toBe(false);
+  });
+
   it("maps Kotlin role evidence from wildcard imports", async () => {
     const root = await fixtureRoot("clawpatch-kotlin-wildcard-imports-");
     await writeFixture(root, "settings.gradle.kts", 'pluginManagement {}\ninclude(":app")\n');
@@ -2909,6 +2949,41 @@ describe("mapFeatures", () => {
 
     expect(client?.ownedFiles[0]?.reason).toContain("retrofit2.*");
     expect(di?.ownedFiles[0]?.reason).toContain("org.koin.dsl.*");
+  });
+
+  it("does not resolve local Kotlin declarations through wildcard imports", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-local-wildcard-type-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/jobs/JobFactory.kt",
+      [
+        "package com.example.jobs",
+        "",
+        "import org.scheduler.*",
+        "",
+        "data class Job(val id: String)",
+        "",
+        "class JobFactory {",
+        '  fun buildJob(): Job = Job("1")',
+        "}",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-server-role-framework-component" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/kotlin/com/example/jobs/JobFactory.kt",
+          ),
+      ),
+    ).toBe(false);
   });
 
   it("maps server-side Kotlin declaration role evidence", async () => {
