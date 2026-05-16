@@ -550,7 +550,10 @@ function kotlinFrameworkRoleEvidence(
         confidence: "high",
       });
     }
-    if (!isAndroid && ["Service", "ApplicationScoped", "Singleton", "Named"].includes(annotation)) {
+    if (
+      !isAndroid &&
+      ["Service", "Component", "ApplicationScoped", "Singleton", "Named"].includes(annotation)
+    ) {
       evidence.push({
         role: "server-application-service",
         reason: `service annotation @${annotation}`,
@@ -1351,11 +1354,22 @@ async function gradleTags(
   const buildSource = await readFile(join(root, buildFile), "utf8").catch(() => "");
   if (
     sourceFiles.some((file) => file.endsWith("AndroidManifest.xml")) ||
-    /\bcom\.android\.(?:application|library|dynamic-feature|test)\b/u.test(buildSource)
+    hasAppliedAndroidPlugin(buildSource)
   ) {
     tags.push("android");
   }
   return tags;
+}
+
+function hasAppliedAndroidPlugin(buildSource: string): boolean {
+  return buildSource.split(/\r?\n/u).some((line) => {
+    if (/\bapply\s+false\b/u.test(line)) {
+      return false;
+    }
+    return /\bid\s*\(?\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']\s*\)?/u.test(
+      line,
+    );
+  });
 }
 
 function isGradleSourceFile(path: string): boolean {

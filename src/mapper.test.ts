@@ -2594,9 +2594,9 @@ describe("mapFeatures", () => {
       [
         "package com.example.app",
         "",
-        "import jakarta.inject.Singleton",
+        "import org.springframework.stereotype.Component",
         "",
-        "@Singleton",
+        "@Component",
         "class BillingService",
         "",
       ].join("\n"),
@@ -2676,6 +2676,9 @@ describe("mapFeatures", () => {
       { path: "src/test/kotlin/com/example/api/OrderControllerTest.kt", command: null },
     ]);
     expect(service?.source).toBe("kotlin-server-role-application-service");
+    expect(service?.ownedFiles.map((file) => file.path)).toContain(
+      "src/main/kotlin/com/example/app/BillingService.kt",
+    );
     expect(persistence?.source).toBe("kotlin-server-role-persistence-boundary");
     expect(config?.source).toBe("kotlin-server-role-configuration");
     expect(config?.ownedFiles.map((file) => file.path)).toContain(
@@ -2896,6 +2899,46 @@ describe("mapFeatures", () => {
             (file) => file.path === "ui/src/main/kotlin/com/example/ui/MainViewModel.kt",
           ),
       ),
+    ).toBe(false);
+  });
+
+  it("does not treat apply-false Android plugin declarations as Android modules", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-apply-false-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(
+      root,
+      "build.gradle.kts",
+      [
+        "plugins {",
+        '  id("com.android.application") version "1.0" apply false',
+        '  id("org.jetbrains.kotlin.jvm")',
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/api/OrderController.kt",
+      [
+        "package com.example.api",
+        "",
+        "import org.springframework.web.bind.annotation.RestController",
+        "",
+        "@RestController",
+        "class OrderController",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const web = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin server role web entrypoint "),
+    );
+
+    expect(web?.source).toBe("kotlin-server-role-web-entrypoint");
+    expect(
+      result.features.some((feature) => feature.source.startsWith("kotlin-android-role-")),
     ).toBe(false);
   });
 
