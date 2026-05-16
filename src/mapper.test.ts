@@ -1577,6 +1577,21 @@ let package = Package(name: "HybridApp", targets: [.target(name: "HybridApp")])
       },
     });
 
+    const blackRoot = await fixtureRoot("clawpatch-python-black-");
+    await writeFixture(blackRoot, "requirements.txt", "black\n");
+    expect((await detectProject(blackRoot)).detected.commands.format).toBe("black --check .");
+
+    const uvBlackRoot = await fixtureRoot("clawpatch-python-uv-black-");
+    await writeFixture(
+      uvBlackRoot,
+      "pyproject.toml",
+      '[project]\nname = "uv-black"\ndependencies = ["black"]\n',
+    );
+    await writeFixture(uvBlackRoot, "uv.lock", "");
+    expect((await detectProject(uvBlackRoot)).detected.commands.format).toBe(
+      "uv run black --check .",
+    );
+
     const poetryRoot = await fixtureRoot("clawpatch-python-poetry-");
     await writeFixture(
       poetryRoot,
@@ -2153,6 +2168,60 @@ let package = Package(name: "HybridApp", targets: [.target(name: "HybridApp")])
       { path: "setup.cfg", reason: "python project metadata" },
       { path: "requirements.txt", reason: "python project metadata" },
     ]);
+  });
+
+  it("maps setup.cfg Python project names and console scripts", async () => {
+    const root = await fixtureRoot("clawpatch-python-setup-cfg-entry-points-");
+    await writeFixture(
+      root,
+      "setup.cfg",
+      [
+        "[metadata]",
+        "name = legacy-cli",
+        "",
+        "[options.entry_points]",
+        "console_scripts =",
+        "    legacy = legacy.cli:main",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(root, "legacy/cli.py", "def main():\n    pass\n");
+    await writeFixture(root, "tests/test_cli.py", "def test_cli():\n    pass\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const titles = result.features.map((feature) => feature.title);
+    const cli = result.features.find((feature) => feature.title === "Python CLI command legacy");
+
+    expect(titles).toContain("Python project legacy-cli");
+    expect(cli?.entrypoints[0]).toMatchObject({ path: "legacy/cli.py", symbol: "main" });
+    expect(cli?.tests).toEqual([{ path: "tests/test_cli.py", command: "pytest" }]);
+  });
+
+  it("maps setup.py Python project names and console scripts", async () => {
+    const root = await fixtureRoot("clawpatch-python-setup-py-entry-points-");
+    await writeFixture(
+      root,
+      "setup.py",
+      [
+        "from setuptools import setup",
+        "",
+        "setup(",
+        "    name='setup-cli',",
+        "    entry_points={'console_scripts': ['setcli=setup_cli.cli:main']},",
+        ")",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(root, "setup_cli/cli.py", "def main():\n    pass\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const titles = result.features.map((feature) => feature.title);
+    const cli = result.features.find((feature) => feature.title === "Python CLI command setcli");
+
+    expect(titles).toContain("Python project setup-cli");
+    expect(cli?.entrypoints[0]).toMatchObject({ path: "setup_cli/cli.py", symbol: "main" });
   });
 
   it("keeps Python source group ids stable when a root gains files", async () => {

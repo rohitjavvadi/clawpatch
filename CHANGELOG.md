@@ -5,6 +5,7 @@
 - Added JVM semantic role mapping from Java annotations, imports, inheritance, interfaces, and method signatures.
 - Added Ruby and Rails feature mapping while excluding legacy Rails secrets from reviewable config.
 - Fixed Ruby/Rails project detection so `gems.rb` uses Bundler commands and Rails JavaScript roots avoid duplicate Node feature queues.
+- Improved Python mapping for `setup.cfg`/`setup.py` project metadata and console scripts, plus `black --check .` format defaults.
 - Added selected package script mapping for Node workspace packages.
 - Detected Java/Kotlin language and default Gradle build/test commands for root Gradle projects.
 - Added FastAPI route feature mapping and kept root/web Python project detection in sync.

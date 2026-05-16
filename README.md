@@ -57,7 +57,7 @@ validation commands and records a patch attempt under `.clawpatch/`.
 - Rust `src/main.rs`, `src/bin/*.rs`, `src/lib.rs`, `crates/*`, and
   `tests/*.rs`
 - Python project metadata, console scripts, bounded source groups, pytest suites,
-  and Flask routes
+  and Flask/FastAPI routes
 - SwiftPM `Sources/*` targets and `Tests/*` suites
 - common project config files
 

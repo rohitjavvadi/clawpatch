@@ -280,6 +280,7 @@ async function pythonDefaultCommands(root: string): Promise<ProjectCommands> {
     info.dependencies.has("pytest") ||
     (await containsPythonTestFile(root, 5));
   const hasRuff = info.tools.has("ruff") || info.dependencies.has("ruff");
+  const hasBlack = info.tools.has("black") || info.dependencies.has("black");
   const hasPyright = info.tools.has("pyright") || info.dependencies.has("pyright");
   const hasMypy = info.tools.has("mypy") || info.dependencies.has("mypy");
   return {
@@ -291,7 +292,11 @@ async function pythonDefaultCommands(root: string): Promise<ProjectCommands> {
           ? pythonRunCommand(runner, "ruff check .")
           : null,
     lint: hasRuff ? pythonRunCommand(runner, "ruff check .") : null,
-    format: hasRuff ? pythonRunCommand(runner, "ruff format --check .") : null,
+    format: hasRuff
+      ? pythonRunCommand(runner, "ruff format --check .")
+      : hasBlack
+        ? pythonRunCommand(runner, "black --check .")
+        : null,
     test: hasPytest ? pythonRunCommand(runner, "pytest") : null,
   };
 }
@@ -410,7 +415,7 @@ async function pythonProjectInfo(root: string): Promise<PythonProjectInfo> {
     if (/^\s*(?:\[tool:pytest\]|\[pytest\])\s*(?:#.*)?$/mu.test(source)) {
       info.hasPytestConfig = true;
     }
-    for (const toolMatch of source.matchAll(/^\s*\[(mypy|pyright|ruff)\]/gmu)) {
+    for (const toolMatch of source.matchAll(/^\s*\[(mypy|pyright|ruff|black)\]/gmu)) {
       if (toolMatch[1] !== undefined) {
         info.tools.add(toolMatch[1]);
       }

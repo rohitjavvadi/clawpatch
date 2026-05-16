@@ -63,12 +63,15 @@ Java files in Gradle modules also get role-oriented review slices when code
 evidence identifies web entrypoints, services, persistence boundaries, external
 clients, configuration, framework components, or extension boundaries.
 
-Python mapping covers `pyproject.toml` metadata, `[project.scripts]` and
-`[tool.poetry.scripts]` console scripts, root app files, source groups under
-common Python source roots including `web/`, pytest files, Flask `@*.route(...)`
-handlers, and FastAPI `@*.get(...)` / `@*.api_route(...)` handlers. Flask and
-FastAPI route methods are read from list, tuple, or set literals. FastAPI paths
-can be positional strings or literal `path=` keywords.
+Python mapping covers `pyproject.toml`, `setup.cfg`, `setup.py`, and
+`requirements.txt` metadata; `[project.scripts]`, `[tool.poetry.scripts]`,
+`setup.cfg` `console_scripts`, and `setup.py` console script entry points; root
+app files; source groups under common Python source roots including `web/`;
+pytest files; Flask `@*.route(...)` handlers; and FastAPI `@*.get(...)` /
+`@*.api_route(...)` handlers. Flask and FastAPI route methods are read from list,
+tuple, or set literals. FastAPI paths can be positional strings or literal
+`path=` keywords. Default Python command detection covers pytest, ruff, mypy,
+pyright, and black.
 
 Ruby mapping covers project metadata, executables, source groups, RSpec and
 Minitest suites, and Rails app structure. Rails legacy `config/secrets.yml` is
