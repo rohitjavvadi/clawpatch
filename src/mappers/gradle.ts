@@ -1454,7 +1454,7 @@ async function gradleTags(
 
 function hasAppliedAndroidPlugin(buildSource: string): boolean {
   const source = stripJavaComments(buildSource).replace(
-    /\bid\s*\(?\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']\s*\)?(?:(?!\b(?:id|alias)\s*\().)*?(?:\bapply\s+false\b|\.\s*apply\s*\(\s*false\s*\))/gsu,
+    /\bid\s*\(?\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']\s*\)?(?:(?!\b(?:id|alias)\s*(?:\(|["'])).)*?(?:\bapply\s+false\b|\.\s*apply\s*\(\s*false\s*\))/gsu,
     "",
   );
   return (

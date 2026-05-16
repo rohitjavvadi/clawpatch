@@ -2938,6 +2938,42 @@ describe("mapFeatures", () => {
     expect(viewModel?.source).toBe("kotlin-android-role-view-model");
   });
 
+  it("keeps Groovy Android plugin declarations before unrelated apply false entries", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-groovy-apply-false-");
+    await writeFixture(root, "settings.gradle", "pluginManagement {}\n");
+    await writeFixture(
+      root,
+      "build.gradle",
+      [
+        "plugins {",
+        "  id 'com.android.application' version '8.0'",
+        "  id 'org.jetbrains.kotlin.jvm' version '1.9' apply false",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/ui/MainViewModel.kt",
+      [
+        "package com.example.ui",
+        "",
+        "import androidx.lifecycle.ViewModel",
+        "",
+        "class MainViewModel : ViewModel()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const viewModel = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin Android role view model "),
+    );
+
+    expect(viewModel?.source).toBe("kotlin-android-role-view-model");
+  });
+
   it("detects Android Kotlin roles from applied Gradle plugin syntax without a manifest", async () => {
     const root = await fixtureRoot("clawpatch-kotlin-android-apply-plugin-role-");
     await writeFixture(root, "settings.gradle", "pluginManagement {}\n");
