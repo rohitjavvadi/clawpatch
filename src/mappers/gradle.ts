@@ -545,8 +545,6 @@ function kotlinFrameworkRoleEvidence(
         "InstallIn",
         "Provides",
         "Binds",
-        "Inject",
-        "Singleton",
         "Component",
         "DependencyGraph",
         "BindingContainer",
@@ -636,8 +634,6 @@ function kotlinFrameworkRoleEvidence(
     if (
       isAndroid &&
       (full.startsWith("dagger.") ||
-        full.startsWith("javax.inject.") ||
-        full.startsWith("jakarta.inject.") ||
         full.startsWith("org.koin.") ||
         full.startsWith("me.tatarka.inject.") ||
         full.startsWith("dev.zacsweers.metro."))
@@ -1453,14 +1449,29 @@ async function gradleTags(
 }
 
 function hasAppliedAndroidPlugin(buildSource: string): boolean {
-  const source = stripJavaComments(buildSource).replace(
-    /\bid\s*\(?\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']\s*\)?(?:(?!\b(?:id|alias)\s*(?:\(|["'])).)*?(?:\bapply\s+false\b|\.\s*apply\s*\(\s*false\s*\))/gsu,
-    "",
-  );
+  const source = stripJavaComments(buildSource);
+  const lines = source.split(/\r?\n/u);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (!androidPluginIdPattern().test(line)) {
+      continue;
+    }
+    let applyFalse = /\bapply\s+false\b|\.\s*apply\s*\(\s*false\s*\)/u.test(line);
+    for (let next = index + 1; next < lines.length; next += 1) {
+      const nextLine = lines[next] ?? "";
+      if (isGradlePluginDeclarationLine(nextLine)) {
+        break;
+      }
+      if (/\bapply\s+false\b|\.\s*apply\s*\(\s*false\s*\)/u.test(nextLine)) {
+        applyFalse = true;
+        break;
+      }
+    }
+    if (!applyFalse) {
+      return true;
+    }
+  }
   return (
-    /\bid\s*\(?\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']\s*\)?/u.test(
-      source,
-    ) ||
     /\bapply\s+plugin:\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']/u.test(
       source,
     ) ||
@@ -1468,6 +1479,14 @@ function hasAppliedAndroidPlugin(buildSource: string): boolean {
       source,
     )
   );
+}
+
+function androidPluginIdPattern(): RegExp {
+  return /\bid\s*\(?\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']\s*\)?/u;
+}
+
+function isGradlePluginDeclarationLine(line: string): boolean {
+  return /^\s*(?:id\s*(?:\(|["'])|alias\s*\(|[A-Za-z_][A-Za-z0-9_.]*\s*\()/u.test(line);
 }
 
 function isGradleSourceFile(path: string): boolean {

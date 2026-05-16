@@ -2974,6 +2974,42 @@ describe("mapFeatures", () => {
     expect(viewModel?.source).toBe("kotlin-android-role-view-model");
   });
 
+  it("keeps Kotlin DSL Android plugin declarations before unrelated shorthand apply false entries", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-shorthand-apply-false-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(
+      root,
+      "build.gradle.kts",
+      [
+        "plugins {",
+        '  id("com.android.application") version "8.0"',
+        '  kotlin("jvm") apply false',
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/ui/MainViewModel.kt",
+      [
+        "package com.example.ui",
+        "",
+        "import androidx.lifecycle.ViewModel",
+        "",
+        "class MainViewModel : ViewModel()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const viewModel = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin Android role view model "),
+    );
+
+    expect(viewModel?.source).toBe("kotlin-android-role-view-model");
+  });
+
   it("detects Android Kotlin roles from applied Gradle plugin syntax without a manifest", async () => {
     const root = await fixtureRoot("clawpatch-kotlin-android-apply-plugin-role-");
     await writeFixture(root, "settings.gradle", "pluginManagement {}\n");
@@ -3221,6 +3257,45 @@ describe("mapFeatures", () => {
 
     expect(client?.ownedFiles[0]?.reason).toContain("retrofit2.*");
     expect(di?.ownedFiles[0]?.reason).toContain("org.koin.dsl.*");
+  });
+
+  it("keeps injected Android data consumers in data role path fallback", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-injected-data-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("com.android.application") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/data/UserRepository.kt",
+      [
+        "package com.example.data",
+        "",
+        "import javax.inject.Inject",
+        "",
+        "class UserRepository @Inject constructor()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const data = result.features.find(
+      (feature) =>
+        feature.source === "kotlin-android-role-data-boundary" &&
+        feature.ownedFiles.some(
+          (file) => file.path === "src/main/kotlin/com/example/data/UserRepository.kt",
+        ),
+    );
+
+    expect(data?.ownedFiles[0]?.reason).toContain("path segment data boundary");
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-android-role-dependency-injection" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/kotlin/com/example/data/UserRepository.kt",
+          ),
+      ),
+    ).toBe(false);
   });
 
   it("does not map Retrofit client annotations as server web entrypoints", async () => {
