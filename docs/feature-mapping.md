@@ -37,6 +37,8 @@ Supported deterministic mappers today:
 - React Router `<Route path element>` declarations and React components in
   root or nested frontend packages such as `frontend/`, `client/`, `web/`,
   workspaces, and packages under `apps/` or `packages/`
+- Express, Fastify, and Hono string-literal route declarations in root or
+  workspace Node packages
 - Next.js `app/` and `pages/` routes at the repo root or inside discovered monorepo projects
 - Go `cmd/*/main.go`
 - Go `internal/*` packages
@@ -141,7 +143,9 @@ as reviewable config because they can contain provider-sensitive secrets.
 
 Known gaps:
 
-- no Express/Fastify/Hono route mapper yet
+- Express/Fastify/Hono route mapping is conservative and does not infer
+  prefixes from cross-file router mounts such as `app.use("/api", router)`,
+  `fastify.register(..., { prefix })`, or `app.route("/api", subApp)`
 - no Django route mapper yet
 - Laravel route parsing is convention-based, does not execute Laravel route discovery,
   and may omit prefixes applied by `Route::group(...)` wrappers

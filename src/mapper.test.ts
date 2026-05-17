@@ -1498,6 +1498,291 @@ describe("mapFeatures", () => {
     ).toEqual([{ path: "frontend/src/index.test.ts", command: "pnpm --dir frontend test" }]);
   });
 
+  it("maps Express, Fastify, and Hono string-literal routes", async () => {
+    const root = await fixtureRoot("clawpatch-node-server-routes-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify(
+        {
+          name: "server-app",
+          scripts: { test: "vitest run" },
+          dependencies: { express: "1.0.0", fastify: "1.0.0", hono: "1.0.0" },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "src/server.ts",
+      [
+        "import express, { Router } from 'express';",
+        "",
+        "const app = express();",
+        "const router = Router();",
+        "app.get('/health', health);",
+        "app.all('/proxy', proxy);",
+        "router.post('/admin/jobs', createJob);",
+        "router.route('/users').get(listUsers).delete(deleteUsers);",
+        "router.route('/reports').get(listReports);",
+        "db.delete('/not-a-route');",
+        "// app.get('/commented', ignored);",
+        "const text = \"router.post('/string', ignored)\";",
+        "function health() {}",
+        "function proxy() {}",
+        "function createJob() {}",
+        "function listUsers() {}",
+        "function deleteUsers() {}",
+        "function listReports() {}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/fastify.ts",
+      [
+        "import Fastify from 'fastify';",
+        "",
+        "const fastify = Fastify();",
+        "fastify.get('/status', status);",
+        "fastify.post('/webhook/github', handleWebhook);",
+        "function status() {}",
+        "function handleWebhook() {}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/hono.ts",
+      [
+        "import { Hono } from 'hono';",
+        "",
+        "const app = new Hono();",
+        "app.get('/api/items', listItems);",
+        "app.delete('/sessions/:id', deleteSession);",
+        "function listItems() {}",
+        "function deleteSession() {}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(root, "src/server.test.ts", "test('server', () => {});\n");
+    await writeFixture(root, "src/fastify.test.ts", "test('fastify', () => {});\n");
+    await writeFixture(root, "src/hono.test.ts", "test('hono', () => {});\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const titles = result.features.map((feature) => feature.title);
+    const admin = result.features.find(
+      (feature) => feature.title === "Express route POST /admin/jobs",
+    );
+    const webhook = result.features.find(
+      (feature) => feature.title === "Fastify route POST /webhook/github",
+    );
+    const session = result.features.find(
+      (feature) => feature.title === "Hono route DELETE /sessions/:id",
+    );
+
+    expect(project.detected.frameworks).toEqual(
+      expect.arrayContaining(["express", "fastify", "hono"]),
+    );
+    expect(titles).toEqual(
+      expect.arrayContaining([
+        "Express route GET /health",
+        "Express route ALL /proxy",
+        "Express route POST /admin/jobs",
+        "Express route GET /users",
+        "Express route DELETE /users",
+        "Express route GET /reports",
+        "Fastify route GET /status",
+        "Fastify route POST /webhook/github",
+        "Hono route GET /api/items",
+        "Hono route DELETE /sessions/:id",
+      ]),
+    );
+    expect(titles).not.toContain("Express route GET /commented");
+    expect(titles).not.toContain("Express route POST /string");
+    expect(titles).not.toContain("Express route DELETE /reports");
+    expect(admin?.source).toBe("express-route");
+    expect(admin?.entrypoints[0]).toMatchObject({
+      path: "src/server.ts",
+      symbol: "createJob",
+      route: "POST /admin/jobs",
+    });
+    expect(admin?.tests).toEqual([{ path: "src/server.test.ts", command: "npm run test" }]);
+    expect(admin?.trustBoundaries).toContain("auth");
+    expect(webhook?.trustBoundaries).toEqual(expect.arrayContaining(["auth", "external-api"]));
+    expect(session?.trustBoundaries).toContain("auth");
+  });
+
+  it("maps workspace Express routes with package-scoped validation", async () => {
+    const root = await fixtureRoot("clawpatch-workspace-express-routes-");
+    await writeFixture(root, "pnpm-workspace.yaml", "packages:\n  - packages/*\n");
+    await writeFixture(
+      root,
+      "packages/api/package.json",
+      JSON.stringify(
+        {
+          name: "@scope/api",
+          scripts: { test: "vitest run" },
+          dependencies: { express: "1.0.0" },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "packages/api/src/routes/users.ts",
+      [
+        "import { Router } from 'express';",
+        "",
+        "const usersRouter = Router();",
+        "usersRouter.get('/users/:id', showUser);",
+        "function showUser() {}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "packages/api/src/routes/users.test.ts",
+      "test('users route', () => {});\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const route = result.features.find(
+      (feature) => feature.title === "Express route GET /users/:id",
+    );
+
+    expect(route?.tags).toEqual(expect.arrayContaining(["express", "route", "project:@scope/api"]));
+    expect(route?.tests).toEqual([
+      {
+        path: "packages/api/src/routes/users.test.ts",
+        command: "pnpm --dir packages/api test",
+      },
+    ]);
+  });
+
+  it("does not map route-like calls without a server framework dependency", async () => {
+    const root = await fixtureRoot("clawpatch-node-route-false-positive-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "client", dependencies: { axios: "1.0.0" } }, null, 2),
+    );
+    await writeFixture(
+      root,
+      "src/client.ts",
+      "const app = client();\napp.get('/not-a-server-route');\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(result.features.some((feature) => feature.source.endsWith("-route"))).toBe(false);
+  });
+
+  it("does not map client calls inside server packages as routes", async () => {
+    const root = await fixtureRoot("clawpatch-node-client-call-routes-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify(
+        {
+          name: "mixed-server-client",
+          dependencies: { express: "1.0.0", axios: "1.0.0" },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "src/client.ts",
+      [
+        "import axios from 'axios';",
+        "",
+        "const api = axios.create();",
+        "api.get('/users');",
+        "const app = createClient();",
+        "app.post('/client-submit');",
+        "const server = express();",
+        "client.server.get('/nested-client');",
+        "this.server.post('/nested-submit');",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const titles = result.features.map((feature) => feature.title);
+
+    expect(titles).not.toContain("Express route GET /users");
+    expect(titles).not.toContain("Express route POST /client-submit");
+    expect(titles).not.toContain("Express route GET /nested-client");
+    expect(titles).not.toContain("Express route POST /nested-submit");
+  });
+
+  it("maps Nx Express routes without a project-local package manifest", async () => {
+    const root = await fixtureRoot("clawpatch-nx-express-routes-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify(
+        {
+          name: "nx-root",
+          packageManager: "pnpm@10.0.0",
+          dependencies: { express: "1.0.0" },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(root, "pnpm-lock.yaml", "");
+    await writeFixture(
+      root,
+      "apps/api/project.json",
+      JSON.stringify(
+        {
+          name: "api",
+          sourceRoot: "apps/api/src",
+          projectType: "application",
+          targets: { test: {} },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "apps/api/src/server.mjs",
+      [
+        "import express from 'express';",
+        "",
+        "const app = express();",
+        "app.get('/health', health);",
+        "function health() {}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(root, "apps/api/src/server.test.mjs", "test('server', () => {});\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const route = result.features.find((feature) => feature.title === "Express route GET /health");
+
+    expect(route?.entrypoints[0]).toMatchObject({
+      path: "apps/api/src/server.mjs",
+      symbol: "health",
+      route: "GET /health",
+    });
+    expect(route?.tags).toEqual(expect.arrayContaining(["project:api", "project-root:apps/api"]));
+    expect(route?.tests).toEqual([
+      { path: "apps/api/src/server.test.mjs", command: "pnpm nx test api" },
+    ]);
+  });
+
   it("maps React Router routes and components in a nested frontend app", async () => {
     const root = await fixtureRoot("clawpatch-react-router-map-");
     await writeFixture(root, "pnpm-workspace.yaml", "packages:\n  - frontend\n");
