@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Improved Kotlin JVM and Android semantic role mapping for Gradle projects, including Android plugin aliases, local type handling, comment/string parsing, and role fallback edges, thanks @mrmans0n.
+
 ## 0.1.1 - 2026-05-17
 
 - Added the `acpx` provider for routing review, fix, and revalidate through ACP-compatible coding agents, thanks @mvanhorn.
@@ -20,7 +24,6 @@
 - Added first-pass Python mapping for project metadata, console scripts, source groups, pytest suites, and conservative validation defaults, thanks @xiamx.
 - Improved Python mapping for `setup.cfg`/`setup.py` project metadata and console scripts, plus `black --check .` format defaults.
 - Added Kotlin semantic role mapping for Gradle projects, including Android UI, ViewModel, data, external client, dependency injection, and server-side role slices, thanks @mrmans0n.
-- Improved Kotlin JVM and Android semantic role mapping for Gradle projects, including Android plugin aliases, local type handling, comment/string parsing, and role fallback edges, thanks @mrmans0n.
 - Added JVM semantic role mapping from Java annotations, imports, inheritance, interfaces, and method signatures.
 - Detected Java/Kotlin language and default Gradle build/test commands for root Gradle projects.
 - Added generic C/C++ feature mapping for standalone `main()` files, CMake `add_executable` / `add_library` targets, and autotools `bin_PROGRAMS` / `lib_LTLIBRARIES` targets, thanks @iliaal.
