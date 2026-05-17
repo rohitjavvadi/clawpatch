@@ -7,6 +7,179 @@ import { FeatureSeed, SeedTestRef } from "./types.js";
 
 const maxOwnedFiles = 12;
 const maxTests = 8;
+const emptyProjectPackages = new Set<string>();
+const kotlinBuiltinTypes = new Set([
+  "AbstractMethodError",
+  "AbstractCollection",
+  "AbstractIterator",
+  "AbstractList",
+  "AbstractMap",
+  "AbstractMutableCollection",
+  "AbstractMutableList",
+  "AbstractMutableMap",
+  "AbstractMutableSet",
+  "AbstractSet",
+  "Annotation",
+  "Appendable",
+  "ArithmeticException",
+  "Any",
+  "Array",
+  "ArrayDeque",
+  "ArrayIndexOutOfBoundsException",
+  "ArrayList",
+  "AssertionError",
+  "AutoCloseable",
+  "Boolean",
+  "BooleanArray",
+  "BooleanIterator",
+  "Byte",
+  "ByteArray",
+  "ByteIterator",
+  "Char",
+  "CharArray",
+  "CharCategory",
+  "CharDirection",
+  "CharIterator",
+  "CharProgression",
+  "CharRange",
+  "CharSequence",
+  "Class",
+  "ClassCastException",
+  "ClassLoader",
+  "ClassNotFoundException",
+  "Cloneable",
+  "ClosedFloatingPointRange",
+  "ClosedRange",
+  "Collection",
+  "Comparable",
+  "Comparator",
+  "ConcurrentModificationException",
+  "DeepRecursiveFunction",
+  "DeepRecursiveScope",
+  "Double",
+  "DoubleArray",
+  "DoubleIterator",
+  "Enum",
+  "Error",
+  "Exception",
+  "Float",
+  "FloatArray",
+  "FloatIterator",
+  "Grouping",
+  "HashMap",
+  "HashSet",
+  "IndexedValue",
+  "IllegalArgumentException",
+  "IllegalMonitorStateException",
+  "IllegalStateException",
+  "IllegalThreadStateException",
+  "IndexOutOfBoundsException",
+  "InheritableThreadLocal",
+  "Int",
+  "Integer",
+  "IntArray",
+  "IntIterator",
+  "IntProgression",
+  "IntRange",
+  "InterruptedException",
+  "InternalError",
+  "Iterable",
+  "Iterator",
+  "KotlinVersion",
+  "Lazy",
+  "LazyThreadSafetyMode",
+  "LinkedHashMap",
+  "LinkedHashSet",
+  "List",
+  "ListIterator",
+  "Long",
+  "LongArray",
+  "LongIterator",
+  "LongProgression",
+  "LongRange",
+  "Map",
+  "Math",
+  "MatchGroup",
+  "MatchGroupCollection",
+  "MatchNamedGroupCollection",
+  "MatchResult",
+  "MutableEntry",
+  "MutableCollection",
+  "MutableIterable",
+  "MutableIterator",
+  "MutableList",
+  "MutableListIterator",
+  "MutableMap",
+  "MutableSet",
+  "NegativeArraySizeException",
+  "NoClassDefFoundError",
+  "NoSuchElementException",
+  "NoSuchFieldError",
+  "NoSuchFieldException",
+  "NoSuchMethodError",
+  "NoSuchMethodException",
+  "NoWhenBranchMatchedException",
+  "NullPointerException",
+  "Nothing",
+  "NotImplementedError",
+  "Number",
+  "Object",
+  "OutOfMemoryError",
+  "OpenEndRange",
+  "Package",
+  "Pair",
+  "Process",
+  "ProcessBuilder",
+  "RandomAccess",
+  "Readable",
+  "ReflectiveOperationException",
+  "Regex",
+  "RegexOption",
+  "Result",
+  "Runnable",
+  "Runtime",
+  "RuntimeException",
+  "SecurityException",
+  "Sequence",
+  "Set",
+  "Short",
+  "ShortArray",
+  "ShortIterator",
+  "String",
+  "StringBuffer",
+  "StringBuilder",
+  "SubclassOptInRequired",
+  "System",
+  "Thread",
+  "ThreadGroup",
+  "ThreadLocal",
+  "Throwable",
+  "Triple",
+  "TypeNotPresentException",
+  "UByte",
+  "UByteArray",
+  "UByteIterator",
+  "UInt",
+  "UIntArray",
+  "UIntIterator",
+  "UIntProgression",
+  "UIntRange",
+  "ULong",
+  "ULongArray",
+  "ULongIterator",
+  "ULongProgression",
+  "ULongRange",
+  "Unit",
+  "UninitializedPropertyAccessException",
+  "UnknownError",
+  "UnsatisfiedLinkError",
+  "UnsupportedClassVersionError",
+  "UnsupportedOperationException",
+  "UShort",
+  "UShortArray",
+  "UShortIterator",
+  "Void",
+]);
 const jvmRoleDefinitions = {
   "web-entrypoint": {
     title: "web entrypoint",
@@ -173,27 +346,18 @@ type KotlinDeclaration = {
 type KotlinFileInfo = {
   packageName: string | null;
   annotations: Set<string>;
-  annotationImports: Map<string, string>;
+  qualifiedAnnotations: Set<string>;
+  unqualifiedAnnotations: Set<string>;
   imports: Map<string, string>;
   declarations: KotlinDeclaration[];
   functionReturnTypes: Set<string>;
 };
-const kotlinServerWebAnnotationNames = new Set([
-  "Controller",
-  "RestController",
-  "RequestMapping",
-  "GetMapping",
-  "PostMapping",
-  "PutMapping",
-  "DeleteMapping",
-  "PatchMapping",
-  "Path",
-  "GET",
-  "POST",
-  "PUT",
-  "DELETE",
-  "PATCH",
-]);
+type ParsedKotlinFile = { filePath: string; info: KotlinFileInfo };
+type KotlinProjectIndex = {
+  files: ParsedKotlinFile[];
+  packages: Set<string>;
+  packageTypes: Map<string, Set<string>>;
+};
 
 export async function gradleSeeds(root: string): Promise<FeatureSeed[]> {
   const roots = await discoverGradleRoots(root);
@@ -206,6 +370,8 @@ export async function gradleSeeds(root: string): Promise<FeatureSeed[]> {
 
 async function gradleProjectSeeds(root: string, gradleRoot: string): Promise<FeatureSeed[]> {
   const moduleRoots = await gradleModuleRoots(root, gradleRoot);
+  const projectSourceFiles = await gradleMainSourceFiles(root, moduleRoots);
+  const kotlinProjectIndex = await gradleKotlinProjectIndex(root, projectSourceFiles);
   const seeds: FeatureSeed[] = [];
   for (const moduleRoot of moduleRoots) {
     const buildFile = await gradleBuildFile(root, moduleRoot);
@@ -219,7 +385,7 @@ async function gradleProjectSeeds(root: string, gradleRoot: string): Promise<Fea
     const testFiles = (await walk(root, [sourceRoot]))
       .filter(isGradleSourceFile)
       .filter((file) => isGradleTestFile(moduleRoot, file));
-    const tags = await gradleTags(root, buildFile, sourceFiles);
+    const tags = await gradleTags(root, gradleRoot, buildFile, sourceFiles);
 
     seeds.push({
       title: `Gradle module ${moduleRoot}`,
@@ -264,7 +430,15 @@ async function gradleProjectSeeds(root: string, gradleRoot: string): Promise<Fea
 
     seeds.push(...(await jvmRoleSeeds(root, buildFile, sourceRoot, sourceFiles, testFiles, tags)));
     seeds.push(
-      ...(await kotlinRoleSeeds(root, buildFile, sourceRoot, sourceFiles, testFiles, tags)),
+      ...(await kotlinRoleSeeds(
+        root,
+        buildFile,
+        sourceRoot,
+        sourceFiles,
+        testFiles,
+        tags,
+        kotlinProjectIndex,
+      )),
     );
 
     if (testFiles.length > 0) {
@@ -293,6 +467,37 @@ async function gradleProjectSeeds(root: string, gradleRoot: string): Promise<Fea
   return seeds;
 }
 
+async function gradleKotlinProjectIndex(
+  root: string,
+  projectSourceFiles: string[],
+): Promise<KotlinProjectIndex | null> {
+  const files = await gradleKotlinFiles(root, projectSourceFiles, []);
+  if (files.length === 0) {
+    return null;
+  }
+  return {
+    files,
+    packages: await gradleProjectPackages(root, projectSourceFiles, files),
+    packageTypes: await kotlinPackageDeclarations(root, projectSourceFiles, files),
+  };
+}
+
+async function gradleMainSourceFiles(root: string, moduleRoots: string[]): Promise<string[]> {
+  const files = new Set<string>();
+  for (const moduleRoot of moduleRoots) {
+    if ((await gradleBuildFile(root, moduleRoot)) === null) {
+      continue;
+    }
+    const sourceRoot = moduleRoot === "." ? "src" : `${moduleRoot}/src`;
+    for (const file of (await walk(root, [sourceRoot]))
+      .filter(isGradleSourceFile)
+      .filter((path) => !isGradleTestFile(moduleRoot, path))) {
+      files.add(file);
+    }
+  }
+  return [...files].toSorted();
+}
+
 async function kotlinRoleSeeds(
   root: string,
   buildFile: string,
@@ -300,53 +505,58 @@ async function kotlinRoleSeeds(
   sourceFiles: string[],
   testFiles: string[],
   tags: string[],
+  projectIndex: KotlinProjectIndex | null,
 ): Promise<FeatureSeed[]> {
+  if (projectIndex === null) {
+    return [];
+  }
   const matches = new Map<
     KotlinRoleKey,
     Map<string, Array<{ reason: string; confidence: FeatureSeed["confidence"] }>>
   >();
-  const kotlinFiles: Array<{ filePath: string; info: KotlinFileInfo }> = [];
-  for (const filePath of sourceFiles.filter((file) => file.endsWith(".kt"))) {
-    const source = await readFile(join(root, filePath), "utf8");
-    kotlinFiles.push({ filePath, info: parseKotlinFile(source) });
-  }
+  const sourceFileSet = new Set(sourceFiles);
+  const kotlinFiles = projectIndex.files.filter(({ filePath }) => sourceFileSet.has(filePath));
   if (kotlinFiles.length === 0) {
     return [];
   }
-  const javaFiles: Array<{ filePath: string; info: JavaFileInfo }> = [];
-  for (const filePath of sourceFiles.filter((file) => file.endsWith(".java"))) {
-    const source = await readFile(join(root, filePath), "utf8");
-    javaFiles.push({ filePath, info: parseJavaFile(source) });
-  }
-  const projectPackages = new Set(
-    [...kotlinFiles, ...javaFiles].flatMap(({ info }) =>
-      info.packageName === null ? [] : [info.packageName],
-    ),
-  );
-  const projectTypes = new Set([
-    ...kotlinFiles.flatMap(({ info }) => info.declarations.map((declaration) => declaration.name)),
-    ...javaFiles.flatMap(({ info }) => info.declarations.map((declaration) => declaration.name)),
-  ]);
-  const projectPackageTypes = new Set(
-    [...kotlinFiles, ...javaFiles].flatMap(({ info }) =>
-      info.packageName === null
-        ? []
-        : info.declarations.map((declaration) => `${info.packageName}.${declaration.name}`),
-    ),
-  );
 
   for (const { filePath, info } of kotlinFiles) {
     const frameworkEvidence = kotlinFrameworkRoleEvidence(
       info,
       tags,
-      projectPackages,
-      projectTypes,
-      projectPackageTypes,
+      projectIndex.packages,
+      projectIndex.packageTypes,
     );
-    const evidence = kotlinEvidenceWithPathFallback(
-      frameworkEvidence,
-      kotlinPathRoleEvidence(filePath, tags),
+    const hasStrongServerRole =
+      !tags.includes("android") &&
+      frameworkEvidence.some(
+        (item) =>
+          item.confidence === "high" &&
+          item.role !== "server-framework-component" &&
+          item.role !== "server-extension-boundary",
+      );
+    const hasStrongAndroidNonDiRole =
+      tags.includes("android") &&
+      frameworkEvidence.some(
+        (item) =>
+          item.confidence === "high" &&
+          item.role.startsWith("android-") &&
+          item.role !== "android-dependency-injection",
+      );
+    const pathEvidence = kotlinPathRoleEvidence(filePath, tags).filter(
+      (item) =>
+        !hasStrongServerRole &&
+        !hasStrongAndroidNonDiRole &&
+        !frameworkEvidence.some((evidenceItem) => evidenceItem.role === item.role) &&
+        !(
+          tags.includes("android") &&
+          item.role === "android-ui-entrypoint" &&
+          frameworkEvidence.some((evidenceItem) =>
+            ["android-data-boundary", "android-view-model"].includes(evidenceItem.role),
+          )
+        ),
     );
+    const evidence = [...frameworkEvidence, ...pathEvidence];
     for (const item of evidence) {
       const byFile = matches.get(item.role) ?? new Map();
       const reasons = byFile.get(filePath) ?? [];
@@ -395,6 +605,21 @@ async function kotlinRoleSeeds(
   return seeds;
 }
 
+async function gradleKotlinFiles(
+  root: string,
+  sourceFiles: string[],
+  parsedFiles: ParsedKotlinFile[],
+): Promise<ParsedKotlinFile[]> {
+  const byPath = new Map(parsedFiles.map((file) => [file.filePath, file]));
+  for (const filePath of sourceFiles.filter((file) => file.endsWith(".kt"))) {
+    if (!byPath.has(filePath)) {
+      const source = await readFile(join(root, filePath), "utf8");
+      byPath.set(filePath, { filePath, info: parseKotlinFile(source) });
+    }
+  }
+  return [...byPath.values()];
+}
+
 function kotlinRoleGroups(
   sourceRoot: string,
   byFile: Map<string, Array<{ reason: string; confidence: FeatureSeed["confidence"] }>>,
@@ -404,16 +629,24 @@ function kotlinRoleGroups(
   label: string;
   symbol: string;
 }> {
-  return partitionFileGroups(sourceRoot, [...byFile.keys()], maxOwnedFiles).map((group) => ({
-    confidence: group.files.some((path) =>
-      (byFile.get(path) ?? []).some((item) => item.confidence === "high"),
-    )
-      ? "high"
-      : "medium",
-    group,
-    label: group.label,
-    symbol: group.label,
-  }));
+  return partitionFileGroups(sourceRoot, [...byFile.keys()], maxOwnedFiles).map((group) => {
+    const confidence = kotlinGroupConfidence(group.files, byFile);
+    return {
+      confidence,
+      group,
+      label: group.label,
+      symbol: group.label,
+    };
+  });
+}
+
+function kotlinGroupConfidence(
+  files: string[],
+  byFile: Map<string, Array<{ reason: string; confidence: FeatureSeed["confidence"] }>>,
+): FeatureSeed["confidence"] {
+  return files.some((path) => (byFile.get(path) ?? []).some((item) => item.confidence === "high"))
+    ? "high"
+    : "medium";
 }
 
 function kotlinRoleSource(role: KotlinRoleKey): string {
@@ -423,24 +656,49 @@ function kotlinRoleSource(role: KotlinRoleKey): string {
   return `kotlin-server-role-${role.slice("server-".length)}`;
 }
 
-function kotlinEvidenceWithPathFallback(
-  frameworkEvidence: KotlinRoleEvidence[],
-  pathEvidence: KotlinRoleEvidence[],
-): KotlinRoleEvidence[] {
-  if (frameworkEvidence.every((item) => item.role === "server-extension-boundary")) {
-    return dedupeKotlinEvidence([...frameworkEvidence, ...pathEvidence]);
+async function gradleProjectPackages(
+  root: string,
+  sourceFiles: string[],
+  kotlinFiles: ParsedKotlinFile[],
+): Promise<Set<string>> {
+  const packages = new Set(
+    kotlinFiles.flatMap(({ info }) => (info.packageName === null ? [] : [info.packageName])),
+  );
+  for (const filePath of sourceFiles.filter((file) => file.endsWith(".java"))) {
+    const source = await readFile(join(root, filePath), "utf8");
+    const packageName = parseJavaFile(source).packageName;
+    if (packageName !== null) {
+      packages.add(packageName);
+    }
   }
-  if (frameworkEvidence.every((item) => item.role === "android-dependency-injection")) {
-    return dedupeKotlinEvidence([
-      ...frameworkEvidence,
-      ...pathEvidence.filter((item) =>
-        ["android-ui-entrypoint", "android-data-boundary", "android-external-client"].includes(
-          item.role,
-        ),
-      ),
-    ]);
+  return packages;
+}
+
+async function kotlinPackageDeclarations(
+  root: string,
+  sourceFiles: string[],
+  kotlinFiles: ParsedKotlinFile[],
+): Promise<Map<string, Set<string>>> {
+  const declarations = new Map<string, Set<string>>();
+  for (const { info } of kotlinFiles) {
+    const packageName = info.packageName ?? "";
+    const packageTypes = declarations.get(packageName) ?? new Set<string>();
+    for (const declaration of info.declarations) {
+      packageTypes.add(declaration.name);
+    }
+    declarations.set(packageName, packageTypes);
   }
-  return frameworkEvidence;
+  for (const filePath of sourceFiles.filter((file) => file.endsWith(".java"))) {
+    const source = await readFile(join(root, filePath), "utf8");
+    const info = parseJavaFile(source);
+    const packageName = info.packageName ?? "";
+    const packageTypes = declarations.get(packageName) ?? new Set<string>();
+    for (const declaration of info.declarations) {
+      packageTypes.add(declaration.name);
+    }
+    declarations.set(packageName, packageTypes);
+  }
+  return declarations;
 }
 
 async function jvmRoleSeeds(
@@ -516,8 +774,7 @@ function kotlinFrameworkRoleEvidence(
   info: KotlinFileInfo,
   tags: string[],
   projectPackages: Set<string>,
-  projectTypes: Set<string>,
-  projectPackageTypes: Set<string>,
+  kotlinPackageTypes: Map<string, Set<string>>,
 ): KotlinRoleEvidence[] {
   const evidence: KotlinRoleEvidence[] = [];
   const isAndroid = tags.includes("android");
@@ -552,8 +809,6 @@ function kotlinFrameworkRoleEvidence(
         "InstallIn",
         "Provides",
         "Binds",
-        "Inject",
-        "Singleton",
         "Component",
         "DependencyGraph",
         "BindingContainer",
@@ -566,7 +821,7 @@ function kotlinFrameworkRoleEvidence(
         confidence: "high",
       });
     }
-    if (!isAndroid && isKotlinServerWebAnnotation(annotation, info)) {
+    if (!isAndroid && isKotlinServerWebAnnotation(info, annotation)) {
       evidence.push({
         role: "server-web-entrypoint",
         reason: `server web annotation @${annotation}`,
@@ -599,11 +854,11 @@ function kotlinFrameworkRoleEvidence(
     }
   }
 
-  for (const full of info.imports.values()) {
-    if (isAndroid && isAndroidEntrypointImport(full)) {
+  for (const [importedName, full] of info.imports.entries()) {
+    if (isAndroid && isAndroidUiEntrypointImport(full)) {
       evidence.push({
         role: "android-ui-entrypoint",
-        reason: `Android entrypoint import ${full}`,
+        reason: `Android UI import ${full}`,
         confidence: "high",
       });
     }
@@ -634,8 +889,6 @@ function kotlinFrameworkRoleEvidence(
     if (
       isAndroid &&
       (full.startsWith("dagger.") ||
-        full.startsWith("javax.inject.") ||
-        full.startsWith("jakarta.inject.") ||
         full.startsWith("org.koin.") ||
         full.startsWith("me.tatarka.inject.") ||
         full.startsWith("dev.zacsweers.metro."))
@@ -649,7 +902,13 @@ function kotlinFrameworkRoleEvidence(
         confidence: "high",
       });
     }
-    if (!isAndroid && isKotlinServerWebImport(full)) {
+    if (
+      !isAndroid &&
+      (isKotlinServerWebAnnotationImportUsed(info, importedName, full) ||
+        full.startsWith("io.ktor.server.") ||
+        full.startsWith("org.http4k.") ||
+        full.startsWith("io.javalin."))
+    ) {
       evidence.push({
         role: "server-web-entrypoint",
         reason: `server web import ${full}`,
@@ -686,37 +945,21 @@ function kotlinFrameworkRoleEvidence(
 
   for (const declaration of info.declarations) {
     for (const type of declaration.supertypes) {
-      if (
-        isAndroid &&
-        kotlinImportedTypeMatches(info, type, [
-          "android.app.Activity",
-          "android.app.Service",
-          "android.content.BroadcastReceiver",
-          "androidx.activity.ComponentActivity",
-          "androidx.appcompat.app.AppCompatActivity",
-          "androidx.fragment.app.Fragment",
-        ])
-      ) {
+      if (isAndroid && isAndroidUiEntrypointSupertype(info, type, kotlinPackageTypes)) {
         evidence.push({
           role: "android-ui-entrypoint",
           reason: `inherits Android UI type ${type}`,
           confidence: "high",
         });
       }
-      if (
-        isAndroid &&
-        kotlinImportedTypeMatches(info, type, [
-          "androidx.lifecycle.ViewModel",
-          "androidx.lifecycle.AndroidViewModel",
-        ])
-      ) {
+      if (isAndroid && isAndroidViewModelSupertype(info, type, kotlinPackageTypes)) {
         evidence.push({
           role: "android-view-model",
           reason: `inherits Android ViewModel type ${type}`,
           confidence: "high",
         });
       }
-      if (isAndroid && kotlinImportedTypeMatches(info, type, ["androidx.room.RoomDatabase"])) {
+      if (isAndroid && isAndroidRoomSupertype(info, type, kotlinPackageTypes)) {
         evidence.push({
           role: "android-data-boundary",
           reason: `inherits Room type ${type}`,
@@ -726,52 +969,17 @@ function kotlinFrameworkRoleEvidence(
     }
   }
   if (!isAndroid) {
-    evidence.push(
-      ...kotlinDeclarationRoleEvidence(info, projectPackages, projectTypes, projectPackageTypes),
-    );
-    evidence.push(
-      ...kotlinFunctionReturnRoleEvidence(info, projectPackages, projectTypes, projectPackageTypes),
-    );
+    evidence.push(...kotlinDeclarationRoleEvidence(info, projectPackages, kotlinPackageTypes));
+    evidence.push(...kotlinFunctionReturnRoleEvidence(info, projectPackages, kotlinPackageTypes));
   }
 
   return dedupeKotlinEvidence(evidence);
 }
 
-function isKotlinServerWebAnnotation(annotation: string, info: KotlinFileInfo): boolean {
-  if (!kotlinServerWebAnnotationNames.has(annotation)) {
-    return false;
-  }
-  const qualified = info.annotationImports.get(annotation);
-  if (qualified !== undefined) {
-    return isKotlinServerWebImport(qualified);
-  }
-  const imported = info.imports.get(annotation);
-  if (imported !== undefined) {
-    return isKotlinServerWebImport(imported);
-  }
-  for (const full of info.imports.values()) {
-    if (full.endsWith(".*") && isKotlinServerWebImport(full)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function isKotlinServerWebImport(full: string): boolean {
-  return (
-    full.startsWith("org.springframework.web.bind.annotation.") ||
-    full.startsWith("io.ktor.server.") ||
-    full.startsWith("org.http4k.") ||
-    full.startsWith("io.javalin.") ||
-    /^(?:jakarta|javax)\.ws\.rs\./u.test(full)
-  );
-}
-
 function kotlinDeclarationRoleEvidence(
   info: KotlinFileInfo,
   projectPackages: Set<string>,
-  projectTypes: Set<string>,
-  projectPackageTypes: Set<string>,
+  kotlinPackageTypes: Map<string, Set<string>>,
 ): KotlinRoleEvidence[] {
   const evidence: KotlinRoleEvidence[] = [];
   for (const declaration of info.declarations) {
@@ -783,13 +991,7 @@ function kotlinDeclarationRoleEvidence(
       });
     }
     for (const type of declaration.supertypes) {
-      const full = kotlinImportForType(
-        info,
-        type,
-        projectTypes,
-        projectPackages,
-        projectPackageTypes,
-      );
+      const full = kotlinImportForType(info, type, kotlinPackageTypes);
       if (full !== undefined && isExternalProjectImport(full, projectPackages)) {
         evidence.push({
           role: "server-framework-component",
@@ -802,37 +1004,14 @@ function kotlinDeclarationRoleEvidence(
   return evidence;
 }
 
-function kotlinImportedTypeMatches(info: KotlinFileInfo, type: string, allowed: string[]): boolean {
-  if (allowed.includes(type)) {
-    return true;
-  }
-  const direct = info.imports.get(type);
-  if (direct !== undefined && allowed.includes(direct)) {
-    return true;
-  }
-  for (const full of info.imports.values()) {
-    if (full.endsWith(".*") && allowed.includes(`${full.slice(0, -1)}${type}`)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 function kotlinFunctionReturnRoleEvidence(
   info: KotlinFileInfo,
   projectPackages: Set<string>,
-  projectTypes: Set<string>,
-  projectPackageTypes: Set<string>,
+  kotlinPackageTypes: Map<string, Set<string>>,
 ): KotlinRoleEvidence[] {
   const evidence: KotlinRoleEvidence[] = [];
   for (const type of info.functionReturnTypes) {
-    const full = kotlinImportForType(
-      info,
-      type,
-      projectTypes,
-      projectPackages,
-      projectPackageTypes,
-    );
+    const full = kotlinImportForType(info, type, kotlinPackageTypes);
     if (full !== undefined && isExternalProjectImport(full, projectPackages)) {
       evidence.push({
         role: "server-framework-component",
@@ -847,80 +1026,131 @@ function kotlinFunctionReturnRoleEvidence(
 function kotlinImportForType(
   info: KotlinFileInfo,
   type: string,
-  projectTypes: Set<string>,
-  projectPackages: Set<string>,
-  projectPackageTypes: Set<string>,
+  kotlinPackageTypes: Map<string, Set<string>>,
 ): string | undefined {
-  if (type.includes(".")) {
-    const rootType = type.split(".")[0];
-    if (rootType !== undefined && projectTypes.has(rootType)) {
-      return undefined;
+  const [rootType, ...nestedParts] = type.split(".");
+  const isNestedType = nestedParts.length > 0;
+  if (rootType === undefined || rootType.length === 0) {
+    return undefined;
+  }
+  if (isKotlinStdlibImport(type)) {
+    return undefined;
+  }
+  const packageName = info.packageName ?? "";
+  if (
+    info.declarations.some((declaration) => declaration.name === rootType) ||
+    kotlinPackageTypes.get(packageName)?.has(rootType) === true
+  ) {
+    return undefined;
+  }
+  if (isNestedType) {
+    const directRoot = info.imports.get(rootType);
+    if (directRoot !== undefined) {
+      const full = `${directRoot}.${nestedParts.join(".")}`;
+      return isKotlinStdlibImport(full) ? undefined : full;
     }
-    return type.startsWith("kotlin.") ? undefined : type;
   }
-  if (info.declarations.some((declaration) => declaration.name === type)) {
-    return undefined;
-  }
-  if (info.packageName !== null && projectPackageTypes.has(`${info.packageName}.${type}`)) {
-    return undefined;
+  if (isNestedType && /^[a-z]/u.test(rootType)) {
+    return type;
   }
   const direct = info.imports.get(type);
   if (direct !== undefined) {
-    return direct.startsWith("kotlin.") ? undefined : direct;
+    return isKotlinStdlibImport(direct) ? undefined : direct;
   }
-  if (isKotlinImplicitType(type)) {
+  if (isKotlinBuiltinType(rootType)) {
+    return undefined;
+  }
+  if (!isNestedType && isKotlinBuiltinType(type)) {
     return undefined;
   }
   for (const full of info.imports.values()) {
-    if (full.endsWith(".*")) {
-      if (full.startsWith("kotlin.")) {
-        continue;
-      }
-      const candidate = `${full.slice(0, -1)}${type}`;
-      if (isExternalProjectImport(candidate, projectPackages)) {
-        return candidate;
-      }
+    if (full.endsWith(".*") && kotlinPackageTypes.get(full.slice(0, -2))?.has(rootType) === true) {
+      return undefined;
     }
   }
-  if (projectTypes.has(type)) {
-    return undefined;
+  if (isNestedType) {
+    for (const full of info.imports.values()) {
+      if (full.endsWith(".*")) {
+        if (kotlinPackageTypes.has(full.slice(0, -2))) {
+          continue;
+        }
+        const wildcardType = `${full.slice(0, -1)}${type}`;
+        if (isKotlinExternalCandidateImport(wildcardType)) {
+          return wildcardType;
+        }
+      }
+    }
+    return type;
+  }
+  for (const full of info.imports.values()) {
+    if (full.endsWith(".*")) {
+      if (kotlinPackageTypes.has(full.slice(0, -2))) {
+        continue;
+      }
+      const wildcardType = `${full.slice(0, -1)}${type}`;
+      if (isKotlinExternalCandidateImport(wildcardType)) {
+        return wildcardType;
+      }
+    }
   }
   return undefined;
 }
 
-function isKotlinImplicitType(type: string): boolean {
-  return [
-    "Any",
-    "Array",
-    "Boolean",
-    "Byte",
-    "Char",
-    "CharSequence",
-    "Collection",
-    "Double",
-    "Exception",
-    "Float",
-    "Int",
-    "Iterable",
-    "List",
-    "Long",
-    "Map",
-    "MutableCollection",
-    "MutableList",
-    "MutableMap",
-    "MutableSet",
-    "Nothing",
-    "Number",
-    "Pair",
-    "Result",
-    "Sequence",
-    "Set",
-    "Short",
-    "String",
-    "Throwable",
-    "Triple",
-    "Unit",
-  ].includes(type);
+function kotlinTypeMatchesImport(
+  info: KotlinFileInfo,
+  type: string,
+  kotlinPackageTypes: Map<string, Set<string>>,
+  matches: (full: string) => boolean,
+): boolean {
+  const full = kotlinImportForType(info, type, kotlinPackageTypes);
+  if (full !== undefined && matches(full)) {
+    return true;
+  }
+
+  const [rootType, ...nestedParts] = type.split(".");
+  const isNestedType = nestedParts.length > 0;
+  if (rootType === undefined || rootType.length === 0) {
+    return false;
+  }
+  if ((isNestedType && info.imports.has(rootType)) || (!isNestedType && info.imports.has(type))) {
+    return false;
+  }
+
+  const packageName = info.packageName ?? "";
+  if (
+    info.declarations.some((declaration) => declaration.name === rootType) ||
+    kotlinPackageTypes.get(packageName)?.has(rootType) === true
+  ) {
+    return false;
+  }
+
+  for (const candidate of kotlinWildcardImportCandidates(info, type, kotlinPackageTypes)) {
+    if (matches(candidate)) {
+      return true;
+    }
+  }
+
+  return isNestedType && matches(type);
+}
+
+function kotlinWildcardImportCandidates(
+  info: KotlinFileInfo,
+  type: string,
+  kotlinPackageTypes: Map<string, Set<string>>,
+): string[] {
+  const [rootType] = type.split(".");
+  if (rootType === undefined || rootType.length === 0) {
+    return [];
+  }
+  for (const full of info.imports.values()) {
+    if (full.endsWith(".*") && kotlinPackageTypes.get(full.slice(0, -2))?.has(rootType) === true) {
+      return [];
+    }
+  }
+  return [...info.imports.values()]
+    .filter((full) => full.endsWith(".*") && !kotlinPackageTypes.has(full.slice(0, -2)))
+    .map((full) => `${full.slice(0, -1)}${type}`)
+    .filter(isKotlinExternalCandidateImport);
 }
 
 function kotlinPathRoleEvidence(filePath: string, tags: string[]): KotlinRoleEvidence[] {
@@ -963,6 +1193,94 @@ function kotlinPathRoleEvidence(filePath: string, tags: string[]): KotlinRoleEvi
     });
   }
   return evidence;
+}
+
+function isKotlinBuiltinType(type: string): boolean {
+  return kotlinBuiltinTypes.has(type);
+}
+
+function isKotlinStdlibImport(full: string): boolean {
+  return full.startsWith("kotlin.");
+}
+
+function isKotlinExternalCandidateImport(full: string): boolean {
+  return isExternalProjectImport(full, emptyProjectPackages);
+}
+
+function isKotlinServerWebAnnotation(info: KotlinFileInfo, annotation: string): boolean {
+  if (
+    ![
+      "Controller",
+      "RestController",
+      "RequestMapping",
+      "GetMapping",
+      "PostMapping",
+      "PutMapping",
+      "DeleteMapping",
+      "PatchMapping",
+      "Path",
+      "GET",
+      "POST",
+      "PUT",
+      "DELETE",
+      "PATCH",
+    ].includes(annotation)
+  ) {
+    return false;
+  }
+  for (const full of info.qualifiedAnnotations) {
+    if (full.split(".").at(-1) === annotation && isKotlinServerWebImport(full)) {
+      return true;
+    }
+  }
+  if (
+    !info.unqualifiedAnnotations.has(annotation) &&
+    [...info.qualifiedAnnotations].some((full) => full.split(".").at(-1) === annotation)
+  ) {
+    return false;
+  }
+  const imported = info.imports.get(annotation);
+  if (imported !== undefined) {
+    return isKotlinServerWebImport(imported);
+  }
+  for (const full of info.imports.values()) {
+    if (full.endsWith(".*") && isKotlinServerWebImport(full)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isKotlinServerWebAnnotationImportUsed(
+  info: KotlinFileInfo,
+  importedName: string,
+  full: string,
+): boolean {
+  if (!isKotlinServerWebAnnotationImport(full)) {
+    return false;
+  }
+  if (full.endsWith(".*")) {
+    return [...info.unqualifiedAnnotations].some((annotation) =>
+      isKotlinServerWebAnnotation(info, annotation),
+    );
+  }
+  return info.unqualifiedAnnotations.has(importedName);
+}
+
+function isKotlinServerWebImport(full: string): boolean {
+  return (
+    isKotlinServerWebAnnotationImport(full) ||
+    full.startsWith("io.ktor.server.") ||
+    full.startsWith("org.http4k.") ||
+    full.startsWith("io.javalin.")
+  );
+}
+
+function isKotlinServerWebAnnotationImport(full: string): boolean {
+  return (
+    full.startsWith("org.springframework.web.bind.annotation.") ||
+    /^(?:jakarta|javax)\.ws\.rs\./u.test(full)
+  );
 }
 
 function parseJavaFile(source: string): JavaFileInfo {
@@ -1022,34 +1340,37 @@ function parseKotlinFile(source: string): KotlinFileInfo {
   }
 
   const annotations = new Set<string>();
-  const annotationImports = new Map<string, string>();
+  const qualifiedAnnotations = new Set<string>();
+  const unqualifiedAnnotations = new Set<string>();
   for (const match of stripped.matchAll(
     /@(?:[A-Za-z_][A-Za-z0-9_]*:)?([A-Za-z_][A-Za-z0-9_.]*)/gu,
   )) {
     const raw = match[1];
     if (raw !== undefined) {
-      const simple = raw.split(".").at(-1) ?? raw;
-      annotations.add(simple);
+      annotations.add(raw.split(".").at(-1) ?? raw);
       if (raw.includes(".")) {
-        annotationImports.set(simple, raw);
+        qualifiedAnnotations.add(raw);
+      } else {
+        unqualifiedAnnotations.add(raw);
       }
     }
   }
 
   const functionReturnTypes = new Set<string>();
   for (const match of stripped.matchAll(
-    /\bfun\s*(?:<[^>{}\n]*>\s*)?(?:[A-Za-z_][A-Za-z0-9_.]*\s*\.\s*)?[A-Za-z_][A-Za-z0-9_]*\s*\([^(){}]*\)\s*:\s*([^=\n{]+)/gu,
+    /\bfun\s*(?:<[^>{}\n]*>\s*)?(?:[A-Za-z_][A-Za-z0-9_.]*\s*\.\s*)?[A-Za-z_][A-Za-z0-9_]*\s*\((?:[^(){}]|\([^(){}]*\))*\)\s*:\s*([^=\n{]+)/gu,
   )) {
     const type = match[1];
     if (type !== undefined) {
-      functionReturnTypes.add(baseKotlinTypeName(stripGenericParameters(type)));
+      functionReturnTypes.add(kotlinTypeReferenceName(type));
     }
   }
 
   return {
     packageName,
     annotations,
-    annotationImports,
+    qualifiedAnnotations,
+    unqualifiedAnnotations,
     imports,
     declarations: parseKotlinDeclarations(stripped),
     functionReturnTypes,
@@ -1078,11 +1399,8 @@ function parseJavaDeclarations(source: string): JavaDeclaration[] {
 
 function parseKotlinDeclarations(source: string): KotlinDeclaration[] {
   const declarations: KotlinDeclaration[] = [];
-  const primaryConstructor = String.raw`\((?:[^(){}]|\([^(){}]*\))*\)`;
-  const declarationPattern = new RegExp(
-    String.raw`\b(?:(?:data|sealed|open|abstract|final|inner|value|annotation)\s+)*(?:(enum)\s+)?(?:(fun)\s+)?(class|interface|object)\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*<[^{};]*>)?(?:\s+(?:(?:@[A-Za-z_][A-Za-z0-9_.]*(?:\([^{}]*?\))?|public|private|protected|internal)\s+)*constructor\s*${primaryConstructor}|\s*${primaryConstructor})?(?:\s*:\s*([^{\n]+))?`,
-    "gsu",
-  );
+  const declarationPattern =
+    /\b(?:(?:expect|actual|data|sealed|open|abstract|final|inner|value|annotation)\s+)*(?:(enum)\s+)?(?:(fun)\s+)?(class|interface|object)\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*<[^{};]*>)?(?:(?:\s+(?:(?:@[A-Za-z_][A-Za-z0-9_.]*(?:\([^(){}]*\))?|public|private|protected|internal)\s+)*constructor\s*\((?:[^(){}]|\([^(){}]*\))*\))|(?:\s*\((?:[^(){}]|\([^(){}]*\))*\)))?(?:\s*:\s*([^{}]+?)(?=\s*(?:\{|\n\s*(?:@[A-Za-z_][A-Za-z0-9_.]*(?:\([^(){}]*\))?\s*)*(?:(?:expect|actual|public|private|protected|internal|const|lateinit|suspend|inline|tailrec|operator|infix|external)\s+)*(?:(?:(?:expect|actual|data|sealed|open|abstract|final|inner|value|annotation)\s+)*(?:enum\s+)?(?:fun\s+)?(?:class|interface|object)|fun|val|var|typealias)\s+|$)))?/gsu;
   for (const match of source.matchAll(declarationPattern)) {
     const rawKind = match[3];
     const name = match[4];
@@ -1199,9 +1517,8 @@ function isExternalProjectImport(full: string, projectPackages: Set<string>): bo
     return false;
   }
   if (
-    full.startsWith("javax.") &&
-    !full.startsWith("javax.servlet.") &&
-    !full.startsWith("javax.ws.rs.")
+    /^(?:javax|jakarta)\./u.test(full) &&
+    !/^(?:javax|jakarta)\.(?:servlet|ws\.rs)\./u.test(full)
   ) {
     return false;
   }
@@ -1232,6 +1549,7 @@ function isKotlinExternalClientImport(full: string): boolean {
     isNetworkClientImport(full) ||
     full.startsWith("retrofit2.") ||
     full.startsWith("okhttp3.") ||
+    full.startsWith("org.apache.http.") ||
     full.startsWith("io.ktor.client.") ||
     full.startsWith("io.grpc.") ||
     full.startsWith("software.amazon.awssdk.") ||
@@ -1240,15 +1558,53 @@ function isKotlinExternalClientImport(full: string): boolean {
   );
 }
 
-function isAndroidEntrypointImport(full: string): boolean {
+function isAndroidUiEntrypointImport(full: string): boolean {
   return [
     "android.app.Activity",
+    "android.app.ListActivity",
+    "android.app.Service",
     "android.content.BroadcastReceiver",
     "androidx.activity.ComponentActivity",
     "androidx.appcompat.app.AppCompatActivity",
+    "androidx.fragment.app.DialogFragment",
     "androidx.fragment.app.Fragment",
     "androidx.lifecycle.LifecycleService",
   ].includes(full);
+}
+
+function isAndroidUiEntrypointSupertype(
+  info: KotlinFileInfo,
+  type: string,
+  kotlinPackageTypes: Map<string, Set<string>>,
+): boolean {
+  return kotlinTypeMatchesImport(info, type, kotlinPackageTypes, isAndroidUiEntrypointImport);
+}
+
+function isAndroidViewModelSupertype(
+  info: KotlinFileInfo,
+  type: string,
+  kotlinPackageTypes: Map<string, Set<string>>,
+): boolean {
+  return kotlinTypeMatchesImport(
+    info,
+    type,
+    kotlinPackageTypes,
+    (full) =>
+      full === "androidx.lifecycle.ViewModel" || full === "androidx.lifecycle.AndroidViewModel",
+  );
+}
+
+function isAndroidRoomSupertype(
+  info: KotlinFileInfo,
+  type: string,
+  kotlinPackageTypes: Map<string, Set<string>>,
+): boolean {
+  return kotlinTypeMatchesImport(
+    info,
+    type,
+    kotlinPackageTypes,
+    (full) => full === "androidx.room.RoomDatabase",
+  );
 }
 
 function isSpringDataPersistenceImport(full: string): boolean {
@@ -1295,9 +1651,7 @@ function kotlinTypeNames(raw: string): string[] {
     current += char;
   }
   parts.push(current);
-  return parts
-    .map((type) => baseKotlinTypeName(stripGenericParameters(type)))
-    .filter((type) => type.length > 0);
+  return parts.map((type) => kotlinTypeReferenceName(type)).filter((type) => type.length > 0);
 }
 
 function baseJavaTypeName(raw: string): string {
@@ -1316,9 +1670,22 @@ function baseKotlinTypeName(raw: string): string {
     raw
       .replace(/\([^()]*\)/gu, "")
       .replace(/\?.*$/su, "")
-      .replace(/[^A-Za-z0-9_.]/gu, "")
+      .split(".")
+      .at(-1)
+      ?.replace(/[^A-Za-z0-9_]/gu, "")
       .trim() ?? ""
   );
+}
+
+function kotlinTypeReferenceName(raw: string): string {
+  const type = stripGenericParameters(raw)
+    .replace(/\([^()]*\)/gu, "")
+    .replace(/\?.*$/su, "")
+    .trim();
+  if (type.includes(".")) {
+    return type.replace(/[^A-Za-z0-9_.]/gu, "");
+  }
+  return baseKotlinTypeName(type);
 }
 
 function splitJavaTypeList(raw: string): string[] {
@@ -1368,7 +1735,86 @@ function stripJavaComments(source: string): string {
 }
 
 function stripKotlinComments(source: string): string {
-  return stripJavaComments(source);
+  let stripped = "";
+  let index = 0;
+  let depth = 0;
+  let stringMode: "char" | "double" | "raw" | null = null;
+  while (index < source.length) {
+    const char = source[index] ?? "";
+    const pair = source.slice(index, index + 2);
+    const triple = source.slice(index, index + 3);
+    if (stringMode === null && pair === "/*") {
+      depth += 1;
+      stripped += "  ";
+      index += 2;
+      continue;
+    }
+    if (depth > 0) {
+      if (pair === "*/") {
+        depth = Math.max(0, depth - 1);
+        stripped += "  ";
+        index += 2;
+      } else {
+        stripped += char === "\n" ? "\n" : " ";
+        index += 1;
+      }
+      continue;
+    }
+
+    if (stringMode === "raw") {
+      if (triple === '"""') {
+        stringMode = null;
+        stripped += "   ";
+        index += 3;
+      } else {
+        stripped += char === "\n" ? "\n" : " ";
+        index += 1;
+      }
+      continue;
+    }
+    if (stringMode !== null) {
+      stripped += char === "\n" ? "\n" : " ";
+      if (char === "\\") {
+        stripped += source[index + 1] === "\n" ? "\n" : " ";
+        index += 2;
+        continue;
+      }
+      if ((stringMode === "double" && char === '"') || (stringMode === "char" && char === "'")) {
+        stringMode = null;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (triple === '"""') {
+      stringMode = "raw";
+      stripped += "   ";
+      index += 3;
+      continue;
+    }
+    if (char === '"') {
+      stringMode = "double";
+      stripped += " ";
+      index += 1;
+      continue;
+    }
+    if (char === "'") {
+      stringMode = "char";
+      stripped += " ";
+      index += 1;
+      continue;
+    }
+    if (pair === "//") {
+      while (index < source.length && source[index] !== "\n") {
+        stripped += " ";
+        index += 1;
+      }
+      continue;
+    }
+    stripped += char;
+    index += 1;
+  }
+  return stripped;
 }
 
 function dedupeEvidence(evidence: JvmRoleEvidence[]): JvmRoleEvidence[] {
@@ -1422,13 +1868,12 @@ async function discoverGradleRootsInto(
   if (!info.isDirectory() || info.isSymbolicLink()) {
     return;
   }
-  const hasSettings =
-    (await pathExists(join(full, "settings.gradle"))) ||
-    (await pathExists(join(full, "settings.gradle.kts")));
+  const hasSettings = await hasGradleSettings(root, dir);
   if (hasSettings || (await gradleBuildFile(root, dir)) !== null) {
     roots.push(dir);
   }
   if (hasSettings) {
+    await discoverNestedGradleRootsInto(root, dir, remainingDepth - 1, roots);
     return;
   }
   for (const entry of await readdir(full)) {
@@ -1439,6 +1884,34 @@ async function discoverGradleRootsInto(
     const childInfo = await lstat(join(full, entry));
     if (childInfo.isDirectory() && !childInfo.isSymbolicLink()) {
       await discoverGradleRootsInto(root, child, remainingDepth - 1, roots);
+    }
+  }
+}
+
+async function discoverNestedGradleRootsInto(
+  root: string,
+  dir: string,
+  remainingDepth: number,
+  roots: string[],
+): Promise<void> {
+  if (remainingDepth < 0 || (dir !== "." && (shouldSkip(dir) || isSampleProjectPath(dir)))) {
+    return;
+  }
+  const full = dir === "." ? root : join(root, dir);
+  for (const entry of await readdir(full)) {
+    const child = dir === "." ? entry : `${dir}/${entry}`;
+    if (shouldSkip(child) || isSampleProjectPath(child)) {
+      continue;
+    }
+    const childFull = join(full, entry);
+    const childInfo = await lstat(childFull);
+    if (!childInfo.isDirectory() || childInfo.isSymbolicLink()) {
+      continue;
+    }
+    if (await hasGradleSettings(root, child)) {
+      await discoverGradleRootsInto(root, child, remainingDepth, roots);
+    } else {
+      await discoverNestedGradleRootsInto(root, child, remainingDepth - 1, roots);
     }
   }
 }
@@ -1469,11 +1942,22 @@ async function collectGradleModules(
     if (!childInfo.isDirectory() || childInfo.isSymbolicLink()) {
       continue;
     }
+    if (await hasGradleSettings(root, child)) {
+      continue;
+    }
     if ((await gradleBuildFile(root, child)) !== null) {
       modules.add(child);
     }
     await collectGradleModules(root, child, remainingDepth - 1, modules);
   }
+}
+
+async function hasGradleSettings(root: string, moduleRoot: string): Promise<boolean> {
+  const full = moduleRoot === "." ? root : join(root, moduleRoot);
+  return (
+    (await pathExists(join(full, "settings.gradle"))) ||
+    (await pathExists(join(full, "settings.gradle.kts")))
+  );
 }
 
 async function gradleBuildFile(root: string, moduleRoot: string): Promise<string | null> {
@@ -1518,6 +2002,7 @@ function associatedGradleTests(files: string[], testFiles: string[]): SeedTestRe
 
 async function gradleTags(
   root: string,
+  gradleRoot: string,
   buildFile: string,
   sourceFiles: string[],
 ): Promise<string[]> {
@@ -1528,39 +2013,393 @@ async function gradleTags(
   ) {
     tags.push("kotlin");
   }
-  const buildSource = stripGradleComments(
-    await readFile(join(root, buildFile), "utf8").catch(() => ""),
-  );
+  const [buildSource, androidAliases] = await Promise.all([
+    readFile(join(root, buildFile), "utf8").catch(() => ""),
+    androidVersionCatalogPluginAliases(root, gradleRoot, buildFile),
+  ]);
   if (
-    appliesAndroidGradlePlugin(buildSource) ||
-    /\bandroid\s*\{/u.test(buildSource) ||
-    sourceFiles.some((file) => file.endsWith("AndroidManifest.xml"))
+    sourceFiles.some((file) => file.endsWith("AndroidManifest.xml")) ||
+    hasAndroidExtensionBlock(buildSource, buildFile.endsWith(".kts")) ||
+    hasAppliedAndroidPlugin(buildSource, androidAliases, buildFile.endsWith(".kts"))
   ) {
     tags.push("android");
   }
   return tags;
 }
 
-function appliesAndroidGradlePlugin(source: string): boolean {
-  const androidPluginId = String.raw`com\.android\.(?:application|library|test|dynamic-feature)`;
-  const androidPluginPattern =
-    String.raw`\bid\s*(?:\(\s*)?["']${androidPluginId}["']\s*\)?` +
-    "|" +
-    String.raw`\balias\s*\(\s*libs\.plugins\.[A-Za-z0-9_.]*android[A-Za-z0-9_.]*\s*\)` +
-    "|" +
-    String.raw`\bapply\s+plugin\s*:\s*["']${androidPluginId}["']` +
-    "|" +
-    String.raw`\bapply\s*\(\s*plugin\s*=\s*["']${androidPluginId}["']\s*\)`;
-  const disabledAndroidPlugin = new RegExp(
-    String.raw`(?:${androidPluginPattern})(?:\s*\.version\s*\([^)]*\)|\s+version\s+["'][^"']+["'])?\s*(?:\.apply\s*\(\s*false\s*\)|\bapply\s+false\b)`,
-    "giu",
-  );
-  const activeSource = source.replace(disabledAndroidPlugin, "");
-  return new RegExp(androidPluginPattern, "iu").test(activeSource);
+async function androidVersionCatalogPluginAliases(
+  root: string,
+  gradleRoot: string,
+  buildFile: string,
+): Promise<Set<string>> {
+  const aliases = new Set<string>();
+  for (const path of versionCatalogPaths(buildFile, gradleRoot)) {
+    const source = await readFile(join(root, path), "utf8").catch(() => null);
+    if (source === null) {
+      continue;
+    }
+    for (const alias of parseAndroidPluginAliases(source)) {
+      aliases.add(alias);
+    }
+  }
+  return aliases;
 }
 
-function stripGradleComments(source: string): string {
-  return stripJavaComments(source);
+function versionCatalogPaths(_buildFile: string, gradleRoot: string): string[] {
+  return [
+    gradleRoot === "." ? "gradle/libs.versions.toml" : `${gradleRoot}/gradle/libs.versions.toml`,
+  ];
+}
+
+function parseAndroidPluginAliases(source: string): Set<string> {
+  const aliases = new Set<string>();
+  let inPlugins = false;
+  let pluginTableAlias: string | null = null;
+  for (const rawLine of source.split(/\r?\n/u)) {
+    const line = rawLine.replace(/#.*/u, "").trim();
+    if (line.length === 0) {
+      continue;
+    }
+    const section = /^\[([^\]]+)\]$/u.exec(line)?.[1];
+    if (section !== undefined) {
+      const sectionKey = tomlDottedKey(section);
+      inPlugins = sectionKey === "plugins" || sectionKey.startsWith("plugins.");
+      pluginTableAlias = sectionKey.startsWith("plugins.")
+        ? sectionKey.slice("plugins.".length)
+        : null;
+      continue;
+    }
+    const topLevelPluginAlias = androidTopLevelPluginAliasForLine(line);
+    if (topLevelPluginAlias !== undefined) {
+      aliases.add(normalizeVersionCatalogAlias(topLevelPluginAlias));
+      continue;
+    }
+    if (!inPlugins || !/com\.android\.(?:application|library|dynamic-feature|test)/u.test(line)) {
+      continue;
+    }
+    const alias = androidPluginAliasForLine(line, pluginTableAlias);
+    if (alias !== undefined) {
+      aliases.add(normalizeVersionCatalogAlias(alias));
+    }
+  }
+  return aliases;
+}
+
+function androidTopLevelPluginAliasForLine(line: string): string | undefined {
+  if (!/com\.android\.(?:application|library|dynamic-feature|test)/u.test(line)) {
+    return undefined;
+  }
+  return tomlPluginAliasKey(
+    /^plugins\.(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_.-]+?))(?:\.id)?\s*=/u.exec(line),
+  );
+}
+
+function androidPluginAliasForLine(
+  line: string,
+  pluginTableAlias: string | null,
+): string | undefined {
+  const rawKey = tomlPluginAliasKey(
+    /^(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_.-]+?))(?:\.id)?\s*=/u.exec(line),
+  );
+  if (pluginTableAlias === null || rawKey === undefined || rawKey === "id") {
+    return pluginTableAlias ?? rawKey;
+  }
+  return `${pluginTableAlias}.${rawKey}`;
+}
+
+function tomlPluginAliasKey(match: RegExpExecArray | null): string | undefined {
+  return match?.[1] ?? match?.[2] ?? match?.[3];
+}
+
+function tomlDottedKey(key: string): string {
+  const segments: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  for (let index = 0; index < key.length; index += 1) {
+    const char = key[index] ?? "";
+    if (quote !== null) {
+      if (char === "\\" && quote === '"') {
+        current += char;
+        index += 1;
+        current += key[index] ?? "";
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === ".") {
+      segments.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  segments.push(current.trim());
+  return segments.filter((segment) => segment.length > 0).join(".");
+}
+
+function hasAppliedAndroidPlugin(
+  buildSource: string,
+  androidAliases: Set<string>,
+  isKotlinDsl: boolean,
+): boolean {
+  const source = stripGradleBuildComments(buildSource, isKotlinDsl);
+  for (const pluginBlock of rootGradlePluginBlocks(source)) {
+    for (const match of pluginBlock.matchAll(androidPluginDeclarationPattern())) {
+      const start = match.index ?? 0;
+      if (!hasGradleApplyFalse(pluginBlock, start)) {
+        return true;
+      }
+    }
+    for (const match of pluginBlock.matchAll(
+      /\balias\s*\(\s*libs\.plugins\.([A-Za-z0-9_.]+)\s*\)/gu,
+    )) {
+      const alias = match[1];
+      if (
+        alias !== undefined &&
+        androidAliases.has(normalizeVersionCatalogAlias(alias)) &&
+        !hasGradleApplyFalse(pluginBlock, match.index ?? 0)
+      ) {
+        return true;
+      }
+    }
+  }
+  return hasDirectAndroidApplyPlugin(source);
+}
+
+function rootGradlePluginBlocks(source: string): string[] {
+  const blocks: string[] = [];
+  let quote: "'" | '"' | null = null;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index] ?? "";
+    if (quote !== null) {
+      if (char === "\\") {
+        index += 1;
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char !== "{") {
+      continue;
+    }
+    const prefix = source.slice(Math.max(0, index - 100), index).trimEnd();
+    if (!/\bplugins\s*$/u.test(prefix) || isInsideGradleChildProjectBlock(source, index)) {
+      continue;
+    }
+    const end = gradleBlockEnd(source, index);
+    blocks.push(source.slice(index + 1, end));
+    index = end;
+  }
+  return blocks;
+}
+
+function gradleBlockEnd(source: string, openBrace: number): number {
+  let quote: "'" | '"' | null = null;
+  let depth = 1;
+  for (let index = openBrace + 1; index < source.length; index += 1) {
+    const char = source[index] ?? "";
+    if (quote !== null) {
+      if (char === "\\") {
+        index += 1;
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+  return source.length;
+}
+
+function stripGradleBuildComments(source: string, supportsNestedBlockComments: boolean): string {
+  let stripped = "";
+  let index = 0;
+  let quote: "'" | '"' | null = null;
+  let blockDepth = 0;
+  while (index < source.length) {
+    const char = source[index] ?? "";
+    const pair = source.slice(index, index + 2);
+    if (blockDepth > 0) {
+      if (supportsNestedBlockComments && pair === "/*") {
+        blockDepth += 1;
+        stripped += "  ";
+        index += 2;
+      } else if (pair === "*/") {
+        blockDepth = Math.max(0, blockDepth - 1);
+        stripped += "  ";
+        index += 2;
+      } else {
+        stripped += char === "\n" ? "\n" : " ";
+        index += 1;
+      }
+      continue;
+    }
+    if (quote !== null) {
+      stripped += char;
+      if (char === "\\") {
+        stripped += source[index + 1] ?? "";
+        index += 2;
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+      }
+      index += 1;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      stripped += char;
+      index += 1;
+      continue;
+    }
+    if (pair === "//") {
+      while (index < source.length && source[index] !== "\n") {
+        stripped += " ";
+        index += 1;
+      }
+      continue;
+    }
+    if (pair === "/*") {
+      blockDepth = 1;
+      stripped += "  ";
+      index += 2;
+      continue;
+    }
+    stripped += char;
+    index += 1;
+  }
+  return stripped;
+}
+
+function hasDirectAndroidApplyPlugin(source: string): boolean {
+  const pattern =
+    /\b(?:apply\s+plugin\s*:\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']|apply\s*\(\s*plugin\s*(?:=|:)\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']\s*\))/gu;
+  for (const match of source.matchAll(pattern)) {
+    if (!isInsideGradleChildProjectBlock(source, match.index ?? 0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasAndroidExtensionBlock(buildSource: string, isKotlinDsl: boolean): boolean {
+  const source = stripGradleBuildComments(buildSource, isKotlinDsl);
+  for (const match of source.matchAll(/\bandroid\s*\{/gu)) {
+    if (!isInsideGradleChildProjectBlock(source, match.index ?? 0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isInsideGradleChildProjectBlock(source: string, offset: number): boolean {
+  const scopes: boolean[] = [];
+  let quote: "'" | '"' | null = null;
+  for (let index = 0; index < offset; index += 1) {
+    const char = source[index] ?? "";
+    if (quote !== null) {
+      if (char === "\\") {
+        index += 1;
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === "{") {
+      const prefix = source.slice(Math.max(0, index - 100), index).trimEnd();
+      const childProjectScope =
+        /\bsubprojects\s*$/u.test(prefix) ||
+        /\bsubprojects\.configureEach\s*$/u.test(prefix) ||
+        /\bconfigure\s*\(\s*subprojects\s*\)\s*$/u.test(prefix) ||
+        /\bproject\s*\([^)]*\)\s*$/u.test(prefix);
+      scopes.push((scopes.at(-1) ?? false) || childProjectScope);
+    } else if (char === "}") {
+      scopes.pop();
+    }
+  }
+  return scopes.includes(true);
+}
+
+function hasGradleApplyFalse(source: string, start: number): boolean {
+  const segmentEnd = gradlePluginInvocationEnd(source, start);
+  const segment = source.slice(start, segmentEnd);
+  return /\bapply\s+false\b|\.\s*apply\s*\(\s*false\s*\)/u.test(segment);
+}
+
+function androidPluginDeclarationPattern(): RegExp {
+  return /\b(?:id\s*\(?\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']\s*\)?|alias\s*\(\s*libs\.plugins\.[A-Za-z0-9_.]*android[A-Za-z0-9_.]*\s*\))/giu;
+}
+
+function gradlePluginInvocationEnd(source: string, start: number): number {
+  let quote: "'" | '"' | null = null;
+  for (let index = start + 1; index < source.length; index += 1) {
+    const char = source[index] ?? "";
+    if (quote !== null) {
+      if (char === "\\") {
+        index += 1;
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === ";" || char === "}") {
+      return index;
+    }
+    if (
+      char === "\n" &&
+      /^\s*(?:id\s*(?:\(|["'])|alias\s*\(|kotlin\s*\(|`[^`]+`|[A-Za-z_][A-Za-z0-9_]*\s+(?:apply|version)\b)/u.test(
+        source.slice(index + 1),
+      )
+    ) {
+      return index;
+    }
+  }
+  return source.length;
+}
+
+function normalizeVersionCatalogAlias(alias: string): string {
+  return alias.replace(/[-_]/gu, ".").toLowerCase();
 }
 
 function isGradleSourceFile(path: string): boolean {
