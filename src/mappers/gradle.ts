@@ -600,7 +600,6 @@ function kotlinFrameworkRoleEvidence(
         full.startsWith("android.content.BroadcastReceiver") ||
         full.startsWith("androidx.activity.") ||
         full.startsWith("androidx.appcompat.app.") ||
-        full.startsWith("androidx.compose.") ||
         full.startsWith("androidx.fragment.app.") ||
         full.startsWith("androidx.lifecycle.LifecycleService"))
     ) {
@@ -1465,7 +1464,7 @@ function hasAppliedAndroidPlugin(buildSource: string): boolean {
   const lines = source.split(/\r?\n/u);
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] ?? "";
-    for (const match of line.matchAll(androidPluginIdPattern())) {
+    for (const match of line.matchAll(androidPluginDeclarationPattern())) {
       const start = match.index ?? 0;
       const segmentEnd = line.indexOf(";", start);
       const sameLineSegment = line.slice(start, segmentEnd === -1 ? undefined : segmentEnd);
@@ -1497,8 +1496,8 @@ function hasAppliedAndroidPlugin(buildSource: string): boolean {
   );
 }
 
-function androidPluginIdPattern(): RegExp {
-  return /\bid\s*\(?\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']\s*\)?/gu;
+function androidPluginDeclarationPattern(): RegExp {
+  return /\b(?:id\s*\(?\s*["']com\.android\.(?:application|library|dynamic-feature|test)["']\s*\)?|alias\s*\(\s*libs\.plugins\.[A-Za-z0-9_.]*(?:android\.(?:application|library|dynamicFeature|dynamic-feature|test)|android(?:Application|Library|DynamicFeature|Test)|comAndroid(?:Application|Library|DynamicFeature|Test))[A-Za-z0-9_.]*\s*\))/gu;
 }
 
 function isGradlePluginDeclarationLine(line: string): boolean {

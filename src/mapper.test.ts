@@ -3040,6 +3040,36 @@ describe("mapFeatures", () => {
     expect(viewModel?.source).toBe("kotlin-android-role-view-model");
   });
 
+  it("detects Android Kotlin roles from version-catalog plugin aliases without a manifest", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-plugin-alias-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(
+      root,
+      "build.gradle.kts",
+      "plugins { alias(libs.plugins.android.library) }\n",
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/ui/MainViewModel.kt",
+      [
+        "package com.example.ui",
+        "",
+        "import androidx.lifecycle.ViewModel",
+        "",
+        "class MainViewModel : ViewModel()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const viewModel = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin Android role view model "),
+    );
+
+    expect(viewModel?.source).toBe("kotlin-android-role-view-model");
+  });
+
   it("detects Android Kotlin roles from applied Gradle plugin syntax without a manifest", async () => {
     const root = await fixtureRoot("clawpatch-kotlin-android-apply-plugin-role-");
     await writeFixture(root, "settings.gradle", "pluginManagement {}\n");
@@ -3084,6 +3114,46 @@ describe("mapFeatures", () => {
       [
         "plugins {",
         '  id("com.android.application") version "1.0" apply false',
+        '  id("org.jetbrains.kotlin.jvm")',
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/api/OrderController.kt",
+      [
+        "package com.example.api",
+        "",
+        "import org.springframework.web.bind.annotation.RestController",
+        "",
+        "@RestController",
+        "class OrderController",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const web = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin server role web entrypoint "),
+    );
+
+    expect(web?.source).toBe("kotlin-server-role-web-entrypoint");
+    expect(
+      result.features.some((feature) => feature.source.startsWith("kotlin-android-role-")),
+    ).toBe(false);
+  });
+
+  it("does not treat apply-false version-catalog Android plugin aliases as Android modules", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-alias-apply-false-module-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(
+      root,
+      "build.gradle.kts",
+      [
+        "plugins {",
+        "  alias(libs.plugins.android.library) apply false",
         '  id("org.jetbrains.kotlin.jvm")',
         "}",
         "",
@@ -3235,6 +3305,49 @@ describe("mapFeatures", () => {
     expect(
       result.features.some((feature) => feature.source.startsWith("kotlin-android-role-")),
     ).toBe(false);
+  });
+
+  it("does not map Compose runtime-only imports as Android UI entrypoints", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-compose-runtime-only-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("com.android.application") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/ui/MainViewModel.kt",
+      [
+        "package com.example.ui",
+        "",
+        "import androidx.compose.runtime.mutableStateOf",
+        "import androidx.lifecycle.ViewModel",
+        "",
+        "class MainViewModel : ViewModel() {",
+        '  val name = mutableStateOf("app")',
+        "}",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-android-role-ui-entrypoint" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/kotlin/com/example/ui/MainViewModel.kt",
+          ),
+      ),
+    ).toBe(false);
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-android-role-view-model" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/kotlin/com/example/ui/MainViewModel.kt",
+          ),
+      ),
+    ).toBe(true);
   });
 
   it("maps Kotlin role evidence from wildcard imports", async () => {
