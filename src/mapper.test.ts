@@ -4837,6 +4837,43 @@ describe("mapFeatures", () => {
     expect(viewModel?.source).toBe("kotlin-android-role-view-model");
   });
 
+  it("detects root Android apply plugin after Gradle child-scope string braces", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-apply-string-brace-");
+    await writeFixture(root, "settings.gradle", "pluginManagement {}\n");
+    await writeFixture(
+      root,
+      "build.gradle",
+      [
+        "plugins { id 'org.jetbrains.kotlin.jvm' }",
+        "subprojects {",
+        "  tasks.register('note') { doLast { println('{') } }",
+        "}",
+        "apply plugin: 'com.android.library'",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/ui/MainViewModel.kt",
+      [
+        "package com.example.ui",
+        "",
+        "import androidx.lifecycle.ViewModel",
+        "",
+        "class MainViewModel : ViewModel()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const viewModel = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin Android role view model "),
+    );
+
+    expect(viewModel?.source).toBe("kotlin-android-role-view-model");
+  });
+
   it("detects root Android roles from allprojects apply plugin blocks", async () => {
     const root = await fixtureRoot("clawpatch-kotlin-android-allprojects-apply-");
     await writeFixture(root, "settings.gradle", "pluginManagement {}\n");
@@ -5916,6 +5953,34 @@ describe("mapFeatures", () => {
           feature.ownedFiles.some(
             (file) => file.path === "src/main/kotlin/com/example/api/Entries.kt",
           ),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not resolve local lowercase dotted Kotlin return types as framework roles", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-local-lowercase-dotted-type-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/Routes.kt",
+      [
+        "package com.example",
+        "",
+        "object routes { class Handler }",
+        "class Factory { fun handler(): routes.Handler = TODO() }",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-server-role-framework-component" &&
+          feature.ownedFiles.some((file) => file.path === "src/main/kotlin/com/example/Routes.kt"),
       ),
     ).toBe(false);
   });

@@ -1023,6 +1023,13 @@ function kotlinImportForType(
   if (isKotlinStdlibImport(type)) {
     return undefined;
   }
+  const packageName = info.packageName ?? "";
+  if (
+    info.declarations.some((declaration) => declaration.name === rootType) ||
+    kotlinPackageTypes.get(packageName)?.has(rootType) === true
+  ) {
+    return undefined;
+  }
   if (isNestedType && /^[a-z]/u.test(rootType)) {
     return type;
   }
@@ -1038,13 +1045,6 @@ function kotlinImportForType(
     return isKotlinStdlibImport(direct) ? undefined : direct;
   }
   if (isKotlinBuiltinType(rootType)) {
-    return undefined;
-  }
-  const packageName = info.packageName ?? "";
-  if (
-    info.declarations.some((declaration) => declaration.name === rootType) ||
-    kotlinPackageTypes.get(packageName)?.has(rootType) === true
-  ) {
     return undefined;
   }
   if (!isNestedType && isKotlinBuiltinType(type)) {
@@ -2073,8 +2073,23 @@ function hasAndroidExtensionBlock(buildSource: string, isKotlinDsl: boolean): bo
 
 function isInsideGradleChildProjectBlock(source: string, offset: number): boolean {
   const scopes: boolean[] = [];
+  let quote: "'" | '"' | null = null;
   for (let index = 0; index < offset; index += 1) {
-    const char = source[index];
+    const char = source[index] ?? "";
+    if (quote !== null) {
+      if (char === "\\") {
+        index += 1;
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
     if (char === "{") {
       const prefix = source.slice(Math.max(0, index - 100), index).trimEnd();
       const childProjectScope =
