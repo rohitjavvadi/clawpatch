@@ -1868,13 +1868,12 @@ async function discoverGradleRootsInto(
   if (!info.isDirectory() || info.isSymbolicLink()) {
     return;
   }
-  const hasSettings =
-    (await pathExists(join(full, "settings.gradle"))) ||
-    (await pathExists(join(full, "settings.gradle.kts")));
+  const hasSettings = await hasGradleSettings(root, dir);
   if (hasSettings || (await gradleBuildFile(root, dir)) !== null) {
     roots.push(dir);
   }
   if (hasSettings) {
+    await discoverNestedGradleRootsInto(root, dir, remainingDepth - 1, roots);
     return;
   }
   for (const entry of await readdir(full)) {
@@ -1885,6 +1884,34 @@ async function discoverGradleRootsInto(
     const childInfo = await lstat(join(full, entry));
     if (childInfo.isDirectory() && !childInfo.isSymbolicLink()) {
       await discoverGradleRootsInto(root, child, remainingDepth - 1, roots);
+    }
+  }
+}
+
+async function discoverNestedGradleRootsInto(
+  root: string,
+  dir: string,
+  remainingDepth: number,
+  roots: string[],
+): Promise<void> {
+  if (remainingDepth < 0 || (dir !== "." && (shouldSkip(dir) || isSampleProjectPath(dir)))) {
+    return;
+  }
+  const full = dir === "." ? root : join(root, dir);
+  for (const entry of await readdir(full)) {
+    const child = dir === "." ? entry : `${dir}/${entry}`;
+    if (shouldSkip(child) || isSampleProjectPath(child)) {
+      continue;
+    }
+    const childFull = join(full, entry);
+    const childInfo = await lstat(childFull);
+    if (!childInfo.isDirectory() || childInfo.isSymbolicLink()) {
+      continue;
+    }
+    if (await hasGradleSettings(root, child)) {
+      await discoverGradleRootsInto(root, child, remainingDepth, roots);
+    } else {
+      await discoverNestedGradleRootsInto(root, child, remainingDepth - 1, roots);
     }
   }
 }

@@ -3684,6 +3684,53 @@ describe("mapFeatures", () => {
     );
   });
 
+  it("maps nested Gradle roots under settings builds independently", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-settings-nested-root-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/jobs/JobFactory.kt",
+      [
+        "package com.example.jobs",
+        "",
+        "import org.scheduler.*",
+        "",
+        "class JobFactory : JobFactoryBase()",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(root, "nested/settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(
+      root,
+      "nested/build.gradle.kts",
+      'plugins { id("org.jetbrains.kotlin.jvm") }\n',
+    );
+    await writeFixture(
+      root,
+      "nested/src/main/kotlin/org/scheduler/JobFactoryBase.kt",
+      "package org.scheduler\nclass JobFactoryBase\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const nestedModule = result.features.find(
+      (feature) => feature.title === "Gradle module nested",
+    );
+    const framework = result.features.find(
+      (feature) =>
+        feature.source === "kotlin-server-role-framework-component" &&
+        feature.ownedFiles.some(
+          (file) => file.path === "src/main/kotlin/com/example/jobs/JobFactory.kt",
+        ),
+    );
+
+    expect(nestedModule?.source).toBe("gradle-module");
+    expect(framework?.ownedFiles[0]?.reason).toContain(
+      "inherits external type org.scheduler.JobFactoryBase",
+    );
+  });
+
   it("does not treat Kotlin stdlib return types as framework components", async () => {
     const root = await fixtureRoot("clawpatch-kotlin-stdlib-type-map-");
     await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
