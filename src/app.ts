@@ -10,6 +10,12 @@ import { loadConfig, resolveStateDir, GlobalOptions } from "./config.js";
 import { detectProject } from "./detect.js";
 import { ClawpatchError, assertDefined } from "./errors.js";
 import { runCommand } from "./exec.js";
+import {
+  appendFindingHistory,
+  findingFromOutput,
+  mergeFinding,
+  parseFindingStatus,
+} from "./findings.js";
 import { nowIso, writeJson } from "./fs.js";
 import { changedFilesSince, discoverGit, findProjectRoot } from "./git.js";
 import { stableId, runId } from "./id.js";
@@ -62,7 +68,6 @@ import {
   PatchAttempt,
   RunRecord,
   ReviewOutput,
-  deriveFindingTriage,
   reasoningEffortSchema,
   reasoningEfforts,
 } from "./types.js";
@@ -845,21 +850,6 @@ export async function fixCommand(
   };
 }
 
-function mergeFinding(existing: FindingRecord | null, incoming: FindingRecord): FindingRecord {
-  if (existing === null) {
-    return incoming;
-  }
-  return {
-    ...incoming,
-    status: existing.status,
-    history: existing.history,
-    linkedPatchAttemptIds: existing.linkedPatchAttemptIds,
-    createdByRunId: existing.createdByRunId,
-    createdAt: existing.createdAt,
-    updatedAt: nowIso(),
-  };
-}
-
 export async function doctorCommand(
   context: AppContext,
   flags: Record<string, string | boolean> = {},
@@ -1021,26 +1011,6 @@ async function refreshFeatureStatus(
   }
 }
 
-function appendFindingHistory(
-  finding: FindingRecord,
-  entry: FindingRecord["history"][number],
-): FindingRecord {
-  return { ...finding, history: [...finding.history, entry] };
-}
-
-function parseFindingStatus(value: string): FindingRecord["status"] {
-  if (
-    value === "open" ||
-    value === "false-positive" ||
-    value === "fixed" ||
-    value === "wont-fix" ||
-    value === "uncertain"
-  ) {
-    return value;
-  }
-  throw new ClawpatchError(`invalid finding status: ${value}`, 2, "invalid-usage");
-}
-
 async function selectReviewFeatures(
   loaded: Awaited<ReturnType<typeof loadProjectState>>,
   flags: Record<string, string | boolean>,
@@ -1091,44 +1061,6 @@ function featureLock(currentRunId: string): NonNullable<FeatureRecord["lock"]> {
     lockedAt: nowIso(),
     hostname: hostname(),
     pid: process.pid,
-  };
-}
-
-function findingFromOutput(
-  finding: ReviewOutput["findings"][number],
-  featureId: string,
-  currentRunId: string,
-): FindingRecord {
-  const signature = stableId("sig", [
-    featureId,
-    finding.category,
-    finding.title,
-    JSON.stringify(finding.evidence),
-  ]);
-  const now = nowIso();
-  return {
-    schemaVersion: 1,
-    findingId: stableId("fnd", [signature]),
-    featureId,
-    title: finding.title,
-    category: finding.category,
-    severity: finding.severity,
-    confidence: finding.confidence,
-    triage: deriveFindingTriage(finding.category, finding.confidence),
-    evidence: finding.evidence,
-    reasoning: finding.reasoning,
-    reproduction: finding.reproduction,
-    recommendation: finding.recommendation,
-    whyTestsDoNotAlreadyCoverThis: finding.whyTestsDoNotAlreadyCoverThis,
-    suggestedRegressionTest: finding.suggestedRegressionTest,
-    minimumFixScope: finding.minimumFixScope,
-    status: "open",
-    history: [],
-    signature,
-    linkedPatchAttemptIds: [],
-    createdByRunId: currentRunId,
-    createdAt: now,
-    updatedAt: now,
   };
 }
 
