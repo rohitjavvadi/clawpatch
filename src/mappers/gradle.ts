@@ -1083,6 +1083,63 @@ function kotlinImportForType(
   return undefined;
 }
 
+function kotlinTypeMatchesImport(
+  info: KotlinFileInfo,
+  type: string,
+  kotlinPackageTypes: Map<string, Set<string>>,
+  matches: (full: string) => boolean,
+): boolean {
+  const full = kotlinImportForType(info, type, kotlinPackageTypes);
+  if (full !== undefined && matches(full)) {
+    return true;
+  }
+
+  const [rootType, ...nestedParts] = type.split(".");
+  const isNestedType = nestedParts.length > 0;
+  if (rootType === undefined || rootType.length === 0) {
+    return false;
+  }
+  if ((isNestedType && info.imports.has(rootType)) || (!isNestedType && info.imports.has(type))) {
+    return false;
+  }
+
+  const packageName = info.packageName ?? "";
+  if (
+    info.declarations.some((declaration) => declaration.name === rootType) ||
+    kotlinPackageTypes.get(packageName)?.has(rootType) === true
+  ) {
+    return false;
+  }
+
+  for (const candidate of kotlinWildcardImportCandidates(info, type, kotlinPackageTypes)) {
+    if (matches(candidate)) {
+      return true;
+    }
+  }
+
+  return isNestedType && matches(type);
+}
+
+function kotlinWildcardImportCandidates(
+  info: KotlinFileInfo,
+  type: string,
+  kotlinPackageTypes: Map<string, Set<string>>,
+): string[] {
+  const [rootType] = type.split(".");
+  if (rootType === undefined || rootType.length === 0) {
+    return [];
+  }
+  for (const full of info.imports.values()) {
+    if (full.endsWith(".*") && kotlinPackageTypes.get(full.slice(0, -2))?.has(rootType) === true) {
+      return [];
+    }
+  }
+  return [...info.imports.values()]
+    .filter((full) => full.endsWith(".*") && !kotlinPackageTypes.has(full.slice(0, -2)))
+    .map((full) => `${full.slice(0, -1)}${type}`)
+    .filter((full) => !isKotlinStdlibImport(full));
+}
+
 function kotlinPathRoleEvidence(filePath: string, tags: string[]): KotlinRoleEvidence[] {
   const normalized = normalize(filePath).toLowerCase();
   const isAndroid = tags.includes("android");
@@ -1155,8 +1212,8 @@ function isKotlinServerWebAnnotation(info: KotlinFileInfo, annotation: string): 
     return false;
   }
   for (const full of info.qualifiedAnnotations) {
-    if (full.split(".").at(-1) === annotation) {
-      return isKotlinServerWebImport(full);
+    if (full.split(".").at(-1) === annotation && isKotlinServerWebImport(full)) {
+      return true;
     }
   }
   const imported = info.imports.get(annotation);
@@ -1471,8 +1528,7 @@ function isAndroidUiEntrypointSupertype(
   type: string,
   kotlinPackageTypes: Map<string, Set<string>>,
 ): boolean {
-  const full = kotlinImportForType(info, type, kotlinPackageTypes);
-  return full !== undefined && isAndroidUiEntrypointImport(full);
+  return kotlinTypeMatchesImport(info, type, kotlinPackageTypes, isAndroidUiEntrypointImport);
 }
 
 function isAndroidViewModelSupertype(
@@ -1480,8 +1536,13 @@ function isAndroidViewModelSupertype(
   type: string,
   kotlinPackageTypes: Map<string, Set<string>>,
 ): boolean {
-  const full = kotlinImportForType(info, type, kotlinPackageTypes);
-  return full === "androidx.lifecycle.ViewModel" || full === "androidx.lifecycle.AndroidViewModel";
+  return kotlinTypeMatchesImport(
+    info,
+    type,
+    kotlinPackageTypes,
+    (full) =>
+      full === "androidx.lifecycle.ViewModel" || full === "androidx.lifecycle.AndroidViewModel",
+  );
 }
 
 function isAndroidRoomSupertype(
@@ -1489,7 +1550,12 @@ function isAndroidRoomSupertype(
   type: string,
   kotlinPackageTypes: Map<string, Set<string>>,
 ): boolean {
-  return kotlinImportForType(info, type, kotlinPackageTypes) === "androidx.room.RoomDatabase";
+  return kotlinTypeMatchesImport(
+    info,
+    type,
+    kotlinPackageTypes,
+    (full) => full === "androidx.room.RoomDatabase",
+  );
 }
 
 function isSpringDataPersistenceImport(full: string): boolean {

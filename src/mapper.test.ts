@@ -4461,6 +4461,33 @@ describe("mapFeatures", () => {
     expect(viewModel?.source).toBe("kotlin-android-role-view-model");
   });
 
+  it("detects Android Kotlin roles from later wildcard imports", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-wildcard-supertype-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("com.android.application") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/ui/MainViewModel.kt",
+      [
+        "package com.example.ui",
+        "",
+        "import com.external.*",
+        "import androidx.lifecycle.*",
+        "",
+        "class MainViewModel : ViewModel()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const viewModel = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin Android role view model "),
+    );
+
+    expect(viewModel?.source).toBe("kotlin-android-role-view-model");
+  });
+
   it("detects Android Kotlin roles from resolved version-catalog plugin aliases", async () => {
     const root = await fixtureRoot("clawpatch-kotlin-android-plugin-catalog-");
     await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
@@ -5555,6 +5582,36 @@ describe("mapFeatures", () => {
       [
         "package com.example.api",
         "",
+        '@jakarta.ws.rs.Path("/orders")',
+        "class OrderResource",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const web = result.features.find(
+      (feature) =>
+        feature.source === "kotlin-server-role-web-entrypoint" &&
+        feature.ownedFiles.some(
+          (file) => file.path === "src/main/kotlin/com/example/api/OrderResource.kt",
+        ),
+    );
+
+    expect(web?.ownedFiles[0]?.reason).toContain("server web annotation @Path");
+  });
+
+  it("maps later fully qualified Kotlin JAX-RS annotations as server web entrypoints", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-qualified-jaxrs-after-custom-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/api/OrderResource.kt",
+      [
+        "package com.example.api",
+        "",
+        "@com.acme.Path",
         '@jakarta.ws.rs.Path("/orders")',
         "class OrderResource",
         "",
