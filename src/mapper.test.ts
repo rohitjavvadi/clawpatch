@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { detectProject } from "./detect.js";
 import { mapFeatures } from "./mapper.js";
+import { discoverNodeProjects } from "./mappers/projects.js";
+import { turboTaskGraph } from "./mappers/turbo.js";
 import { fixtureRoot, writeFixture } from "./test-helpers.js";
 
 describe("mapFeatures", () => {
@@ -288,6 +290,43 @@ describe("mapFeatures", () => {
     );
   });
 
+  it("uses package-local commands when no task graph adapter is present", async () => {
+    const root = await fixtureRoot("clawpatch-task-graph-fallback-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "workspace-root", workspaces: ["apps/*"] }, null, 2),
+    );
+    await writeFixture(root, "pnpm-lock.yaml", "");
+    await writeFixture(
+      root,
+      "apps/web/package.json",
+      JSON.stringify(
+        {
+          name: "web",
+          scripts: { test: "vitest run", build: "next build" },
+          dependencies: { next: "1.0.0" },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "apps/web/app/page.tsx",
+      "export default function Page() { return null; }\n",
+    );
+    await writeFixture(root, "apps/web/app/page.test.tsx", "test('page', () => {});\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const route = result.features.find((feature) => feature.title === "web route /");
+
+    expect(route?.tests).toEqual([
+      { path: "apps/web/app/page.test.tsx", command: "pnpm --dir apps/web test" },
+    ]);
+  });
+
   it("keeps Nx target commands on the workspace package manager", async () => {
     const root = await fixtureRoot("clawpatch-map-nx-root-package-manager-");
     await writeFixture(
@@ -367,6 +406,54 @@ describe("mapFeatures", () => {
 
     expect(route?.tests).toEqual([
       { path: "apps/web/src/pages/HomePage.test.tsx", command: "pnpm nx test web" },
+    ]);
+  });
+
+  it("uses Turbo task commands for React route tests", async () => {
+    const root = await fixtureRoot("clawpatch-map-react-turbo-test-command-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "workspace-root", workspaces: ["apps/*"] }, null, 2),
+    );
+    await writeFixture(root, "pnpm-workspace.yaml", "packages:\n  - apps/*\n");
+    await writeFixture(root, "pnpm-lock.yaml", "");
+    await writeFixture(root, "turbo.json", JSON.stringify({ tasks: { test: {} } }, null, 2));
+    await writeFixture(
+      root,
+      "apps/web/package.json",
+      JSON.stringify(
+        {
+          name: "web",
+          scripts: { test: "vitest run" },
+          dependencies: { react: "1.0.0", "react-router-dom": "1.0.0" },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "apps/web/src/App.tsx",
+      [
+        "import { Route, Routes } from 'react-router-dom';",
+        "import HomePage from './pages/HomePage';",
+        'export function App() { return <Routes><Route path="/home" element={<HomePage />} /></Routes>; }',
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "apps/web/src/pages/HomePage.tsx",
+      "export default function HomePage() { return null; }\n",
+    );
+    await writeFixture(root, "apps/web/src/pages/HomePage.test.tsx", "test('home', () => {});\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const route = result.features.find((feature) => feature.title === "React route /home");
+
+    expect(route?.tests).toEqual([
+      { path: "apps/web/src/pages/HomePage.test.tsx", command: "pnpm turbo run test --filter web" },
     ]);
   });
 
@@ -1082,6 +1169,234 @@ describe("mapFeatures", () => {
     ).toEqual([
       { path: "packages/core/src/index.test.ts", command: "pnpm --dir packages/core test" },
     ]);
+  });
+
+  it("parses Turbo task metadata for workspace validation commands", async () => {
+    const root = await fixtureRoot("clawpatch-turbo-task-graph-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify(
+        {
+          name: "workspace-root",
+          packageManager: "pnpm@10.0.0",
+          workspaces: ["apps/*", "packages/*"],
+          scripts: { test: "vitest run root.test.ts" },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(root, "pnpm-lock.yaml", "");
+    await writeFixture(
+      root,
+      "apps/web/project.json",
+      JSON.stringify({ name: "web-app", targets: { test: {} } }, null, 2),
+    );
+    await writeFixture(
+      root,
+      "turbo.json",
+      JSON.stringify(
+        {
+          globalDependencies: ["package.json", "pnpm-lock.yaml"],
+          globalEnv: ["NODE_ENV"],
+          tasks: {
+            build: { dependsOn: ["^build"], outputs: ["dist/**", ".next/**"] },
+            "@scope/web#test": { dependsOn: ["^test"], outputs: ["coverage/**"] },
+            lint: {},
+            dev: { cache: false, persistent: true },
+            "@scope/ext#build": {
+              dependsOn: ["@scope/contracts#build"],
+              outputs: ["dist/**"],
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(root, "apps/web/package-lock.json", "{}\n");
+    await writeFixture(
+      root,
+      "apps/web/package.json",
+      JSON.stringify(
+        {
+          name: "@scope/web",
+          scripts: { build: "next build", test: "vitest run", lint: "biome check ." },
+          dependencies: { next: "1.0.0" },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "packages/contracts/package.json",
+      JSON.stringify(
+        { name: "@scope/contracts", scripts: { build: "tsc -p tsconfig.json" } },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "apps/ext/package.json",
+      JSON.stringify({ name: "@scope/ext", scripts: { build: "vite build" } }, null, 2),
+    );
+
+    const projects = await discoverNodeProjects(root);
+    const graph = await turboTaskGraph(root, projects);
+    const webTest = graph.commands.find(
+      (command) => command.projectRoot === "apps/web" && command.task === "test",
+    );
+    const extBuild = graph.commands.find(
+      (command) => command.projectName === "@scope/ext" && command.task === "build",
+    );
+
+    expect(graph.runner).toBe("turbo");
+    expect(graph.globalDependencies).toEqual(["package.json", "pnpm-lock.yaml"]);
+    expect(graph.globalEnv).toEqual(["NODE_ENV"]);
+    expect(webTest?.projectName).toBe("web-app");
+    expect(webTest?.command).toBe("pnpm turbo run test --filter @scope/web");
+    expect(webTest?.metadata.dependsOn).toEqual(["^test"]);
+    expect(extBuild?.command).toBe("pnpm turbo run build --filter @scope/ext");
+    expect(extBuild?.metadata.dependsOn).toEqual(["@scope/contracts#build"]);
+    expect(graph.commands.some((command) => command.task === "dev")).toBe(false);
+    expect(
+      graph.commands.some(
+        (command) => command.projectName === "@scope/contracts" && command.task === "test",
+      ),
+    ).toBe(false);
+    expect(graph.commands.some((command) => command.projectRoot === ".")).toBe(false);
+  });
+
+  it("uses Turbo task commands for mapped workspace feature validation", async () => {
+    const root = await fixtureRoot("clawpatch-turbo-feature-validation-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify(
+        {
+          name: "workspace-root",
+          packageManager: "pnpm@10.0.0",
+          workspaces: ["apps/*"],
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(root, "pnpm-lock.yaml", "");
+    await writeFixture(
+      root,
+      "turbo.json",
+      JSON.stringify({ tasks: { test: { dependsOn: ["^test"] } } }, null, 2),
+    );
+    await writeFixture(
+      root,
+      "apps/web/package.json",
+      JSON.stringify(
+        {
+          name: "web",
+          scripts: { test: "vitest run" },
+          dependencies: { next: "1.0.0" },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "apps/web/app/page.tsx",
+      "export default function Page() { return null; }\n",
+    );
+    await writeFixture(root, "apps/web/app/page.test.tsx", "test('page', () => {});\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const route = result.features.find((feature) => feature.title === "web route /");
+    const webSource = result.features.find(
+      (feature) => feature.title === "Node source apps/web/app",
+    );
+
+    expect(route?.tests).toEqual([
+      { path: "apps/web/app/page.test.tsx", command: "pnpm turbo run test --filter web" },
+    ]);
+    expect(webSource?.tests).toEqual([
+      { path: "apps/web/app/page.test.tsx", command: "pnpm turbo run test --filter web" },
+    ]);
+  });
+
+  it("keeps package-local validation for fallback packages outside the workspace graph", async () => {
+    const root = await fixtureRoot("clawpatch-turbo-non-workspace-package-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify(
+        {
+          name: "workspace-root",
+          packageManager: "pnpm@10.0.0",
+          workspaces: ["packages/*"],
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(root, "pnpm-lock.yaml", "");
+    await writeFixture(root, "turbo.json", JSON.stringify({ tasks: { test: {} } }, null, 2));
+    await writeFixture(
+      root,
+      "apps/web/package.json",
+      JSON.stringify(
+        {
+          name: "web",
+          scripts: { test: "vitest run" },
+          dependencies: { next: "1.0.0" },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "apps/web/app/page.tsx",
+      "export default function Page() { return null; }\n",
+    );
+    await writeFixture(root, "apps/web/app/page.test.tsx", "test('page', () => {});\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const route = result.features.find((feature) => feature.title === "web route /");
+
+    expect(route?.tests).toEqual([
+      { path: "apps/web/app/page.test.tsx", command: "pnpm --dir apps/web test" },
+    ]);
+  });
+
+  it("maps turbo config and skips versioned virtualenv directories", async () => {
+    const root = await fixtureRoot("clawpatch-turbo-config-venv-");
+    await writeFixture(root, "package.json", JSON.stringify({ name: "root" }, null, 2));
+    await writeFixture(root, "turbo.json", JSON.stringify({ tasks: { test: {} } }, null, 2));
+    await writeFixture(root, "apps/sandbox/pyproject.toml", "[project]\nname = 'sandbox'\n");
+    await writeFixture(
+      root,
+      "apps/sandbox/src/main.py",
+      "from fastapi import FastAPI\napp = FastAPI()\n",
+    );
+    await writeFixture(
+      root,
+      "apps/sandbox/.venv-311/lib/python/site-packages/bad.py",
+      "raise RuntimeError()\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const titles = result.features.map((feature) => feature.title);
+    const ownedPaths = result.features.flatMap((feature) =>
+      feature.ownedFiles.map((file) => file.path),
+    );
+
+    expect(titles).toContain("Project config turbo.json");
+    expect(ownedPaths.some((path) => path.includes(".venv-311"))).toBe(false);
   });
 
   it("uses package-local locks for fallback Node package roots", async () => {
@@ -2330,7 +2645,6 @@ describe("mapFeatures", () => {
       reason: "direct import",
     });
   });
-
   it("maps nested SwiftPM, Apple, and Android Gradle app surfaces", async () => {
     const root = await fixtureRoot("clawpatch-native-app-map-");
     await writeFixture(root, "package.json", JSON.stringify({ name: "native-root" }, null, 2));

@@ -30,6 +30,7 @@ Supported deterministic mappers today:
 - selected root and workspace package scripts
 - Node/TypeScript workspace packages from `package.json` workspaces, `pnpm-workspace.yaml`, and common package folders
 - Nx project metadata from `project.json`, including project names, source roots, project types, and target names
+- Turborepo `turbo.json` metadata for workspace-aware validation commands and feature context
 - bounded Node/TypeScript source groups under `src/`, `lib/`, `app/`, `pages/`, and `scripts/`
 - React Router `<Route path element>` declarations and React components in
   root or nested frontend packages such as `frontend/`, `client/`, `web/`,
@@ -80,12 +81,16 @@ clawpatch next --project web
 When an Nx project target is available, nearby tests use the project-scoped
 command, such as `yarn nx test web`, instead of a repository-wide test command.
 
+When Turborepo metadata is available, mapped workspace features use filtered
+Turbo validation commands such as `pnpm turbo run test --filter web`. Clawpatch
+does not execute Turbo during mapping and leaves task dependency expansion to
+Turbo when validation commands run.
+
 React mapping discovers packages with a React dependency, including common
 nested frontend directories. It maps React Router route declarations to the
 component they render when the component can be resolved from a local import or
 lazy import, and also maps page/component files under `src/pages` and
 `src/components` as UI-flow slices.
-
 Native app mappers use the same bounded grouping model. SwiftPM packages can be
 discovered below the repo root, Apple projects are grouped by Swift source area,
 and Gradle modules are grouped from `src/main`, `src/test`, and `src/androidTest`.
@@ -124,5 +129,4 @@ Known gaps:
 - Laravel route parsing is convention-based, does not execute Laravel route discovery,
   and may omit prefixes applied by `Route::group(...)` wrappers
 - no import graph expansion beyond nearby tests yet
-- no Turborepo task metadata mapper yet
 - no agent enrichment yet
