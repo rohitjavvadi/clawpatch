@@ -11486,6 +11486,7 @@ add_executable(headerapp include/headers.hpp)
         "    path(DYNAMIC_ROUTE, views.dynamic),",
         "    path(f'tenant/{slug}/', views.dynamic),",
         "    re_path(r'^(foo|bar)/$', views.complex_regex),",
+        "    custom_path('custom/', views.custom),",
         "    # path('commented/', views.commented),",
         "    \"path('string/', views.string)\",",
         "]",
@@ -11558,6 +11559,7 @@ add_executable(headerapp include/headers.hpp)
     expect(byTitle("Django route /users/:pk/")?.trustBoundaries).not.toContain("auth");
     expect(byTitle("Django route /orders/")?.trustBoundaries).not.toContain("auth");
     expect(titles).not.toContain("Django route /tenant/");
+    expect(titles).not.toContain("Django route /custom/");
     expect(titles).not.toContain("Django route /commented/");
     expect(titles).not.toContain("Django route /string/");
     expect(titles).not.toContain("Django route /(foo|bar)/");
