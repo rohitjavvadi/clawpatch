@@ -1723,12 +1723,23 @@ function parseAndroidPluginAliases(source: string): Set<string> {
     if (!inPlugins || !/com\.android\.(?:application|library|dynamic-feature|test)/u.test(line)) {
       continue;
     }
-    const alias = pluginTableAlias ?? /^([A-Za-z0-9_.-]+?)(?:\.id)?\s*=/u.exec(line)?.[1];
+    const alias = androidPluginAliasForLine(line, pluginTableAlias);
     if (alias !== undefined) {
       aliases.add(normalizeVersionCatalogAlias(alias));
     }
   }
   return aliases;
+}
+
+function androidPluginAliasForLine(
+  line: string,
+  pluginTableAlias: string | null,
+): string | undefined {
+  const rawKey = /^([A-Za-z0-9_.-]+?)(?:\.id)?\s*=/u.exec(line)?.[1];
+  if (pluginTableAlias === null || rawKey === undefined || rawKey === "id") {
+    return pluginTableAlias ?? rawKey;
+  }
+  return `${pluginTableAlias}.${rawKey}`;
 }
 
 function hasAppliedAndroidPlugin(buildSource: string, androidAliases: Set<string>): boolean {

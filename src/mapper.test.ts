@@ -3226,6 +3226,52 @@ describe("mapFeatures", () => {
     ).toBe(false);
   });
 
+  it("detects Android Kotlin roles from nested version-catalog plugin tables", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-nested-plugin-catalog-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(
+      root,
+      "gradle/libs.versions.toml",
+      ["[plugins.android]", 'gradle = { id = "com.android.library", version = "8.0.0" }', ""].join(
+        "\n",
+      ),
+    );
+    await writeFixture(
+      root,
+      "build.gradle.kts",
+      "plugins { alias(libs.plugins.android.gradle) }\n",
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/ui/MainViewModel.kt",
+      [
+        "package com.example.ui",
+        "",
+        "import androidx.lifecycle.ViewModel",
+        "",
+        "class MainViewModel : ViewModel()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const viewModel = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin Android role view model "),
+    );
+
+    expect(viewModel?.source).toBe("kotlin-android-role-view-model");
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-server-role-framework-component" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/kotlin/com/example/ui/MainViewModel.kt",
+          ),
+      ),
+    ).toBe(false);
+  });
+
   it("detects Android Kotlin roles from applied Gradle plugin syntax without a manifest", async () => {
     const root = await fixtureRoot("clawpatch-kotlin-android-apply-plugin-role-");
     await writeFixture(root, "settings.gradle", "pluginManagement {}\n");
