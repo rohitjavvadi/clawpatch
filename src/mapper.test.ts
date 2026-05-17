@@ -1754,10 +1754,11 @@ describe("mapFeatures", () => {
       root,
       "src/server.ts",
       [
-        "import express, { Router } from 'express';",
+        "import express, { Router, Router as ExpressRouter } from 'express';",
         "",
         "const app = express();",
         "const router = Router();",
+        "const aliasRouter = ExpressRouter();",
         "const typedRouter: Router = Router();",
         "const projectRouter = Router({ mergeParams: true });",
         "let hitCount = 0;",
@@ -1769,6 +1770,7 @@ describe("mapFeatures", () => {
         "app.get('/dynamic/' + version, dynamicRoute);",
         "app.all('/proxy', proxy);",
         "router.post('/admin/jobs', createJob);",
+        "aliasRouter.get('/aliased-router', listAliasedRouter);",
         "router.post<{ Body: CreateJob }>('/typed-jobs', createTypedJob);",
         "typedRouter.patch('/typed/:id', updateTyped);",
         "router.route('/users').get(listUsers).delete(deleteUsers);",
@@ -1787,6 +1789,7 @@ describe("mapFeatures", () => {
         "function dynamicRoute() {}",
         "function proxy() {}",
         "function createJob() {}",
+        "function listAliasedRouter() {}",
         "function createTypedJob() {}",
         "function updateTyped() {}",
         "function listUsers() {}",
@@ -1832,6 +1835,42 @@ describe("mapFeatures", () => {
     );
     await writeFixture(
       root,
+      "src/cjs-router.cjs",
+      [
+        "const { Router: CjsRouter, json: JsonFactory } = require('express');",
+        "",
+        "const cjsRouter = CjsRouter();",
+        "cjsRouter.get('/cjs-aliased-router', listCjsAliasedRouter);",
+        "const jsonFactory = JsonFactory();",
+        "jsonFactory.get('/cjs-not-router', ignored);",
+        "function listCjsAliasedRouter() {}",
+        "function ignored() {}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/router-assignment.ts",
+      [
+        "import express from 'express';",
+        "",
+        "const AssignedRouter = express.Router;",
+        "const RequiredRouter = require('express').Router;",
+        "const NotRouter = express.json;",
+        "const assignedRouter = AssignedRouter();",
+        "const requiredRouter = RequiredRouter();",
+        "const notRouter = NotRouter();",
+        "assignedRouter.get('/assigned-router', listAssignedRouter);",
+        "requiredRouter.get('/required-router', listRequiredRouter);",
+        "notRouter.get('/assigned-not-router', ignored);",
+        "function listAssignedRouter() {}",
+        "function listRequiredRouter() {}",
+        "function ignored() {}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
       "src/hono.ts",
       [
         "import { Hono } from 'hono';",
@@ -1866,12 +1905,15 @@ describe("mapFeatures", () => {
       "src/custom-router.ts",
       [
         "// import { Router } from 'express';",
-        "import { type Router } from 'express';",
+        "import { type Router, type Router as ExpressRouter } from 'express';",
         "",
         "declare function Router(): { get(path: string, handler: unknown): void };",
+        "declare function ExpressRouter(): { get(path: string, handler: unknown): void };",
         "",
         "const router = Router();",
+        "const aliasRouter = ExpressRouter();",
         "router.get('/custom-router', handler);",
+        "aliasRouter.get('/custom-alias-router', handler);",
         "function handler() {}",
         "",
       ].join("\n"),
@@ -1910,6 +1952,10 @@ describe("mapFeatures", () => {
         "Express route GET /anonymous",
         "Express route ALL /proxy",
         "Express route POST /admin/jobs",
+        "Express route GET /aliased-router",
+        "Express route GET /cjs-aliased-router",
+        "Express route GET /assigned-router",
+        "Express route GET /required-router",
         "Express route POST /typed-jobs",
         "Express route PATCH /typed/:id",
         "Express route GET /users",
@@ -1932,6 +1978,9 @@ describe("mapFeatures", () => {
     expect(titles).not.toContain("Express route GET /arrow-regex");
     expect(titles).not.toContain("Express route GET /returned-regex");
     expect(titles).not.toContain("Express route GET /custom-router");
+    expect(titles).not.toContain("Express route GET /custom-alias-router");
+    expect(titles).not.toContain("Express route GET /cjs-not-router");
+    expect(titles).not.toContain("Express route GET /assigned-not-router");
     expect(titles).not.toContain("Express route GET /dynamic/");
     expect(titles).not.toContain("Fastify route GET /dynamic/");
     expect(titles).not.toContain("Fastify route GET /concat-");

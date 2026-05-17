@@ -302,8 +302,13 @@ function routeTargetNames(source: string, framework: ServerFramework): Set<strin
         "gu",
       ),
     ];
-    if (hasExpressRouterBinding(source)) {
-      patterns.push(new RegExp(`${declarationPrefix}Router${genericArguments}\\s*\\(`, "gu"));
+    for (const factoryName of expressRouterFactoryNames(source)) {
+      patterns.push(
+        new RegExp(
+          `${declarationPrefix}${escapeRegExp(factoryName)}${genericArguments}\\s*\\(`,
+          "gu",
+        ),
+      );
     }
     return declaredTargetNames(source, patterns);
   }
@@ -320,53 +325,87 @@ function routeTargetNames(source: string, framework: ServerFramework): Set<strin
   ]);
 }
 
-function hasExpressRouterBinding(source: string): boolean {
-  return (
-    hasExpressRouterImportBinding(source) ||
-    codePatternMatches(
-      source,
-      /\b(?:const|let|var)\s*\{\s*[^}]*\bRouter\b[^}]*\}\s*=\s*require\s*\(\s*["']express["']\s*\)/gu,
-    ) ||
-    codePatternMatches(
-      source,
-      /\b(?:const|let|var)\s+Router\s*=\s*(?:express\s*\.\s*Router|require\s*\(\s*["']express["']\s*\)\s*\.\s*Router)\b/gu,
-    )
-  );
+function expressRouterFactoryNames(source: string): Set<string> {
+  return new Set([
+    ...expressRouterImportBindingNames(source),
+    ...expressRouterRequireBindingNames(source),
+    ...expressRouterAssignmentNames(source),
+  ]);
 }
 
-function hasExpressRouterImportBinding(source: string): boolean {
+function expressRouterImportBindingNames(source: string): Set<string> {
+  const names = new Set<string>();
   const pattern = /\bimport\s+(?!type\b)([\s\S]{0,400}?)\bfrom\s*["']express["']/gu;
   pattern.lastIndex = 0;
   for (const match of source.matchAll(pattern)) {
     if (isInsideCommentOrString(source, match.index ?? 0)) {
       continue;
     }
-    if (importClauseHasBareValueRouter(match[1] ?? "")) {
-      return true;
-    }
+    addExpressRouterImportNames(names, match[1] ?? "");
   }
-  return false;
+  return names;
 }
 
-function importClauseHasBareValueRouter(clause: string): boolean {
+function addExpressRouterImportNames(names: Set<string>, clause: string): void {
   const named = /\{([^}]*)\}/u.exec(clause)?.[1];
   if (named === undefined) {
-    return false;
+    return;
   }
-  return named.split(",").some((part) => {
+  for (const part of named.split(",")) {
     const binding = part.trim();
-    return !binding.startsWith("type ") && /^Router(?:\s+as\s+Router)?$/u.test(binding);
-  });
-}
-
-function codePatternMatches(source: string, pattern: RegExp): boolean {
-  pattern.lastIndex = 0;
-  for (const match of source.matchAll(pattern)) {
-    if (!isInsideCommentOrString(source, match.index ?? 0)) {
-      return true;
+    if (binding.startsWith("type ")) {
+      continue;
+    }
+    const match = /^Router(?:\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*))?$/u.exec(binding);
+    if (match !== null) {
+      names.add(match[1] ?? "Router");
     }
   }
-  return false;
+}
+
+function expressRouterRequireBindingNames(source: string): Set<string> {
+  const names = new Set<string>();
+  const pattern =
+    /\b(?:const|let|var)\s*\{\s*([^}]*)\}\s*=\s*require\s*\(\s*["']express["']\s*\)/gu;
+  pattern.lastIndex = 0;
+  for (const match of source.matchAll(pattern)) {
+    if (isInsideCommentOrString(source, match.index ?? 0)) {
+      continue;
+    }
+    addExpressRouterRequireNames(names, match[1] ?? "");
+  }
+  return names;
+}
+
+function addExpressRouterRequireNames(names: Set<string>, clause: string): void {
+  for (const part of clause.split(",")) {
+    const binding = part.trim();
+    const match = /^Router(?:\s*:\s*([A-Za-z_$][A-Za-z0-9_$]*))?$/u.exec(binding);
+    if (match !== null) {
+      names.add(match[1] ?? "Router");
+    }
+  }
+}
+
+function expressRouterAssignmentNames(source: string): Set<string> {
+  const names = new Set<string>();
+  const pattern =
+    /\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:express\s*\.\s*Router|require\s*\(\s*["']express["']\s*\)\s*\.\s*Router)\b/gu;
+  pattern.lastIndex = 0;
+  for (const match of source.matchAll(pattern)) {
+    if (isInsideCommentOrString(source, match.index ?? 0)) {
+      continue;
+    }
+    const name = match[1];
+    if (name !== undefined) {
+      names.add(name);
+    }
+  }
+  return names;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function declaredTargetNames(source: string, patterns: RegExp[]): Set<string> {
