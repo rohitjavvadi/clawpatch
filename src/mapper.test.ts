@@ -3842,6 +3842,40 @@ describe("mapFeatures", () => {
     );
   });
 
+  it("maps Kotlin return types after function-typed parameters", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-function-param-return-type-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/api/Router.kt",
+      [
+        "package com.example.api",
+        "",
+        "import org.http4k.routing.Route",
+        "",
+        "class Router {",
+        "  fun route(block: () -> Unit): Route = TODO()",
+        "}",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const component = result.features.find(
+      (feature) =>
+        feature.source === "kotlin-server-role-framework-component" &&
+        feature.ownedFiles.some(
+          (file) => file.path === "src/main/kotlin/com/example/api/Router.kt",
+        ),
+    );
+
+    expect(component?.ownedFiles[0]?.reason).toContain(
+      "returns external type org.http4k.routing.Route",
+    );
+  });
+
   it("does not resolve Kotlin built-in return types through wildcard imports", async () => {
     const root = await fixtureRoot("clawpatch-kotlin-builtin-wildcard-type-");
     await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
@@ -4359,6 +4393,36 @@ describe("mapFeatures", () => {
         "import org.scheduler.JobFactoryBase",
         "",
         "class JobFactory @Inject constructor(private val dep: String) : JobFactoryBase()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const framework = result.features.find(
+      (feature) =>
+        feature.source === "kotlin-server-role-framework-component" &&
+        feature.ownedFiles.some(
+          (file) => file.path === "src/main/kotlin/com/example/jobs/JobFactory.kt",
+        ),
+    );
+
+    expect(framework?.ownedFiles[0]?.reason).toContain("external type org.scheduler.");
+  });
+
+  it("maps Kotlin supertypes after function-typed constructor parameters", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-function-param-constructor-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/jobs/JobFactory.kt",
+      [
+        "package com.example.jobs",
+        "",
+        "import org.scheduler.JobFactoryBase",
+        "",
+        "class JobFactory(cb: () -> Unit) : JobFactoryBase()",
         "",
       ].join("\n"),
     );
