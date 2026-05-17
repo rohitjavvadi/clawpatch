@@ -138,10 +138,11 @@ export async function buildFixPrompt(
   root: string,
   finding: FindingRecord,
   feature: FeatureRecord,
+  config: ClawpatchConfig,
 ): Promise<string> {
   const fileBlocks: string[] = [];
-  for (const ref of feature.ownedFiles) {
-    fileBlocks.push(await fileBlock(root, ref.path));
+  for (const path of fixPromptPaths(finding, feature, config)) {
+    fileBlocks.push(await fileBlock(root, path));
   }
   return `You are clawpatch applying one small repair in the current repository.
 
@@ -163,8 +164,45 @@ ${JSON.stringify(finding, null, 2)}
 Feature:
 ${JSON.stringify(feature, null, 2)}
 
-Owned files:
+Relevant files:
 ${fileBlocks.join("\n\n")}`;
+}
+
+function fixPromptPaths(
+  finding: FindingRecord,
+  feature: FeatureRecord,
+  config: ClawpatchConfig,
+): string[] {
+  const paths: string[] = [];
+  const owned = feature.ownedFiles.slice(0, config.review.maxOwnedFiles);
+  const context = feature.contextFiles.slice(0, config.review.maxContextFiles);
+  const tests = feature.tests.slice(0, config.review.maxContextFiles);
+  const allowed = new Set([
+    ...feature.ownedFiles.map((ref) => ref.path),
+    ...feature.contextFiles.map((ref) => ref.path),
+    ...feature.tests.map((test) => test.path),
+    ...feature.entrypoints.map((entrypoint) => entrypoint.path),
+  ]);
+  const push = (path: string): void => {
+    if (!paths.includes(path)) {
+      paths.push(path);
+    }
+  };
+  for (const evidence of finding.evidence) {
+    if (allowed.has(evidence.path)) {
+      push(evidence.path);
+    }
+  }
+  for (const ref of owned) {
+    push(ref.path);
+  }
+  for (const ref of context) {
+    push(ref.path);
+  }
+  for (const test of tests) {
+    push(test.path);
+  }
+  return paths;
 }
 
 async function fileBlock(root: string, path: string): Promise<string> {

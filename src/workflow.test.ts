@@ -27,7 +27,7 @@ import {
   triageCommand,
 } from "./app.js";
 import { main as cliMain, packageVersion, parseArgs } from "./cli.js";
-import { loadConfig } from "./config.js";
+import { defaultConfig, loadConfig } from "./config.js";
 import { runCommand } from "./exec.js";
 import { changedFilesSince } from "./git.js";
 import { mapWithSource } from "./agent-mapper.js";
@@ -45,7 +45,7 @@ import {
   writeFeature,
   writeFinding,
 } from "./state.js";
-import { buildReviewPrompt } from "./prompt.js";
+import { buildFixPrompt, buildReviewPrompt } from "./prompt.js";
 import type { Provider } from "./provider.js";
 import { fixtureRoot, testOptions, writeFixture } from "./test-helpers.js";
 import { findingRecordSchema } from "./types.js";
@@ -1586,6 +1586,290 @@ describe("workflow", () => {
     expect(fixed).toMatchObject({ dryRun: true, validation: featureCommand });
     expect(patches).toEqual([]);
     delete process.env["CLAWPATCH_PROVIDER"];
+  });
+
+  it("includes evidence, context, and tests in fix prompts", async () => {
+    const root = await fixtureRoot("clawpatch-fix-prompt-context-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "buggy", bin: { buggy: "src/index.ts" } }),
+    );
+    await writeFixture(root, "src/index.ts", "export const value = 'TODO_BUG';\n");
+    await writeFixture(root, "src/helper.ts", "export const helper = true;\n");
+    await writeFixture(root, "src/index.test.ts", "expect(true).toBe(true);\n");
+    await writeFixture(root, ".env", "SECRET=do-not-send\n");
+    process.env["CLAWPATCH_PROVIDER"] = "mock";
+    const context = await makeContext(testOptions(root));
+
+    await initCommand(context, {});
+    await mapCommand(context);
+    const reviewed = (await reviewCommand(context, { limit: "1" })) as { next: string };
+    const findingId = reviewed.next.split(" ").at(-1) ?? "";
+    const paths = statePaths(join(root, ".clawpatch"));
+    const feature = (await readFeatures(paths))[0]!;
+    const featureWithContext: FeatureRecord = {
+      ...feature,
+      ownedFiles: [{ path: "src/helper.ts", reason: "first capped file" }, ...feature.ownedFiles],
+      contextFiles: [{ path: "src/helper.ts", reason: "helper context" }],
+      tests: [{ path: "src/index.test.ts", command: "npm test" }],
+    };
+    const finding = (await readFinding(paths, findingId))!;
+    const findingWithUnownedEvidence = {
+      ...finding,
+      evidence: [
+        { path: ".env", startLine: 1, endLine: 1, symbol: null, quote: "SECRET" },
+        ...finding.evidence,
+      ],
+    };
+    const promptConfig = await loadConfig(root, testOptions(root));
+    const prompt = await buildFixPrompt(root, findingWithUnownedEvidence, featureWithContext, {
+      ...promptConfig,
+      review: {
+        ...promptConfig.review,
+        maxOwnedFiles: 1,
+      },
+    });
+
+    expect(prompt).toContain("--- src/index.ts");
+    expect(prompt).toContain("--- src/helper.ts");
+    expect(prompt).toContain("--- src/index.test.ts");
+    expect(prompt).not.toContain("SECRET=do-not-send");
+    delete process.env["CLAWPATCH_PROVIDER"];
+  });
+
+  it("records already-dirty files changed during fix validation", async () => {
+    const root = await fixtureRoot("clawpatch-fix-dirty-snapshot-");
+    await initGit(root);
+    const config = defaultConfig();
+    await writeFixture(
+      root,
+      "clawpatch.config.json",
+      JSON.stringify(
+        {
+          ...config,
+          provider: { name: "mock", model: null },
+          commands: {
+            ...config.commands,
+            format:
+              "node -e \"require('node:fs').appendFileSync('src/index.ts','// validation touch\\n')\"",
+          },
+          git: { ...config.git, requireCleanWorktreeForFix: false },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({
+        name: "buggy",
+        bin: { buggy: "src/index.ts" },
+        scripts: {},
+      }),
+    );
+    await writeFixture(root, "src/index.ts", "export const value = 'TODO_BUG';\n");
+    await checkCommand(root, "git add clawpatch.config.json package.json src/index.ts");
+    await checkCommand(root, 'git -c commit.gpgsign=false commit -q -m "base"');
+    await writeFixture(
+      root,
+      "src/index.ts",
+      "export const value = 'TODO_BUG';\n// pre-existing user change\n",
+    );
+    const context = await makeContext(testOptions(root));
+
+    await initCommand(context, {});
+    await mapCommand(context);
+    const reviewed = (await reviewCommand(context, { limit: "1" })) as { next: string };
+    const finding = reviewed.next.split(" ").at(-1) ?? "";
+    const fixed = await fixCommand(context, { finding });
+    const patches = await readPatchAttempts(statePaths(join(root, ".clawpatch")));
+
+    expect(fixed).toMatchObject({ status: "applied", filesChanged: 1 });
+    expect(patches[0]?.filesChanged).toEqual(["src/index.ts"]);
+  });
+
+  it("records dirty files removed during fix validation", async () => {
+    const root = await fixtureRoot("clawpatch-fix-dirty-delete-");
+    await initGit(root);
+    const config = defaultConfig();
+    await writeFixture(
+      root,
+      "clawpatch.config.json",
+      JSON.stringify(
+        {
+          ...config,
+          provider: { name: "mock", model: null },
+          commands: {
+            ...config.commands,
+            format: "node -e \"require('node:fs').unlinkSync('src/scratch.txt')\"",
+          },
+          git: { ...config.git, requireCleanWorktreeForFix: false },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "buggy", bin: { buggy: "src/index.ts" }, scripts: {} }),
+    );
+    await writeFixture(root, "src/index.ts", "export const value = 'TODO_BUG';\n");
+    await checkCommand(root, "git add clawpatch.config.json package.json src/index.ts");
+    await checkCommand(root, 'git -c commit.gpgsign=false commit -q -m "base"');
+    await writeFixture(root, "src/scratch.txt", "temporary user work\n");
+    const context = await makeContext(testOptions(root));
+
+    await initCommand(context, {});
+    await mapCommand(context);
+    const reviewed = (await reviewCommand(context, { limit: "1" })) as { next: string };
+    const finding = reviewed.next.split(" ").at(-1) ?? "";
+    const fixed = await fixCommand(context, { finding });
+    const patches = await readPatchAttempts(statePaths(join(root, ".clawpatch")));
+
+    expect(fixed).toMatchObject({ status: "applied", filesChanged: 1 });
+    expect(patches[0]?.filesChanged).toEqual(["src/scratch.txt"]);
+  });
+
+  it("records changes inside pre-existing untracked directories", async () => {
+    const root = await fixtureRoot("clawpatch-fix-dirty-untracked-dir-");
+    await initGit(root);
+    const config = defaultConfig();
+    await writeFixture(
+      root,
+      "clawpatch.config.json",
+      JSON.stringify(
+        {
+          ...config,
+          provider: { name: "mock", model: null },
+          commands: {
+            ...config.commands,
+            format:
+              "node -e \"require('node:fs').appendFileSync('scratch/note.txt','validation touch\\n')\"",
+          },
+          git: { ...config.git, requireCleanWorktreeForFix: false },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "buggy", bin: { buggy: "src/index.ts" }, scripts: {} }),
+    );
+    await writeFixture(root, "src/index.ts", "export const value = 'TODO_BUG';\n");
+    await checkCommand(root, "git add clawpatch.config.json package.json src/index.ts");
+    await checkCommand(root, 'git -c commit.gpgsign=false commit -q -m "base"');
+    await writeFixture(root, "scratch/note.txt", "pre-existing user work\n");
+    const context = await makeContext(testOptions(root));
+
+    await initCommand(context, {});
+    await mapCommand(context);
+    const reviewed = (await reviewCommand(context, { limit: "1" })) as { next: string };
+    const finding = reviewed.next.split(" ").at(-1) ?? "";
+    const fixed = await fixCommand(context, { finding });
+    const patches = await readPatchAttempts(statePaths(join(root, ".clawpatch")));
+
+    expect(fixed).toMatchObject({ status: "applied", filesChanged: 1 });
+    expect(patches[0]?.filesChanged).toEqual(["scratch/note.txt"]);
+  });
+
+  it("records mode-only changes to already-dirty files", async () => {
+    const root = await fixtureRoot("clawpatch-fix-dirty-mode-");
+    await initGit(root);
+    await checkCommand(root, "git config core.filemode true");
+    const config = defaultConfig();
+    await writeFixture(
+      root,
+      "clawpatch.config.json",
+      JSON.stringify(
+        {
+          ...config,
+          provider: { name: "mock", model: null },
+          commands: {
+            ...config.commands,
+            format: "chmod +x script.sh",
+          },
+          git: { ...config.git, requireCleanWorktreeForFix: false },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "buggy", bin: { buggy: "src/index.ts" }, scripts: {} }),
+    );
+    await writeFixture(root, "src/index.ts", "export const value = 'TODO_BUG';\n");
+    await writeFixture(root, "script.sh", "#!/bin/sh\necho before\n");
+    await checkCommand(root, "git add clawpatch.config.json package.json src/index.ts script.sh");
+    await checkCommand(root, 'git -c commit.gpgsign=false commit -q -m "base"');
+    await writeFixture(root, "script.sh", "#!/bin/sh\necho before\necho dirty\n");
+    const context = await makeContext(testOptions(root));
+
+    await initCommand(context, {});
+    await mapCommand(context);
+    const reviewed = (await reviewCommand(context, { limit: "1" })) as { next: string };
+    const finding = reviewed.next.split(" ").at(-1) ?? "";
+    const fixed = await fixCommand(context, { finding });
+    const patches = await readPatchAttempts(statePaths(join(root, ".clawpatch")));
+
+    expect(fixed).toMatchObject({ status: "applied", filesChanged: 1 });
+    expect(patches[0]?.filesChanged).toEqual(["script.sh"]);
+  });
+
+  it("fingerprints dirty symlinks without reading external targets", async () => {
+    const root = await fixtureRoot("clawpatch-fix-dirty-symlink-");
+    const external = await fixtureRoot("clawpatch-fix-dirty-symlink-external-");
+    const externalPath = join(external, "target.txt");
+    await initGit(root);
+    await writeFixture(external, "target.txt", "secret\n");
+    const config = defaultConfig();
+    const externalMutation = `require('node:fs').appendFileSync(${JSON.stringify(
+      externalPath,
+    )}, 'changed\\n')`;
+    await writeFixture(
+      root,
+      "clawpatch.config.json",
+      JSON.stringify(
+        {
+          ...config,
+          provider: { name: "mock", model: null },
+          commands: {
+            ...config.commands,
+            format: `node -e ${JSON.stringify(externalMutation)}`,
+          },
+          git: { ...config.git, requireCleanWorktreeForFix: false },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "buggy", bin: { buggy: "src/index.ts" }, scripts: {} }),
+    );
+    await writeFixture(root, "src/index.ts", "export const value = 'TODO_BUG';\n");
+    await checkCommand(root, "git add clawpatch.config.json package.json src/index.ts");
+    await checkCommand(root, 'git -c commit.gpgsign=false commit -q -m "base"');
+    await symlink(externalPath, join(root, "src/link.txt"));
+    const context = await makeContext(testOptions(root));
+
+    await initCommand(context, {});
+    await mapCommand(context);
+    const reviewed = (await reviewCommand(context, { limit: "1" })) as { next: string };
+    const finding = reviewed.next.split(" ").at(-1) ?? "";
+    const fixed = await fixCommand(context, { finding });
+    const patches = await readPatchAttempts(statePaths(join(root, ".clawpatch")));
+
+    expect(fixed).toMatchObject({ status: "applied", filesChanged: 0 });
+    expect(patches[0]?.filesChanged).toEqual([]);
+    expect(await readFile(externalPath, "utf8")).toContain("changed");
   });
 
   it("suppresses configured test validation for persistent feature tests", async () => {
