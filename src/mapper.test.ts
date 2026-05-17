@@ -6264,6 +6264,42 @@ describe("mapFeatures", () => {
     ).toBe(false);
   });
 
+  it("does not resolve imported local lowercase dotted Kotlin return types as framework roles", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-imported-local-lowercase-dotted-type-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/routes/Routes.kt",
+      ["package com.example.routes", "", "object routes { class Handler }", ""].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/factory/Factory.kt",
+      [
+        "package com.example.factory",
+        "",
+        "import com.example.routes.routes",
+        "",
+        "class Factory { fun handler(): routes.Handler = TODO() }",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-server-role-framework-component" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/kotlin/com/example/factory/Factory.kt",
+          ),
+      ),
+    ).toBe(false);
+  });
+
   it("does not resolve JVM default return types through wildcard imports", async () => {
     const root = await fixtureRoot("clawpatch-kotlin-jvm-default-wildcard-type-");
     await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");

@@ -1040,15 +1040,15 @@ function kotlinImportForType(
   ) {
     return undefined;
   }
-  if (isNestedType && /^[a-z]/u.test(rootType)) {
-    return type;
-  }
   if (isNestedType) {
     const directRoot = info.imports.get(rootType);
     if (directRoot !== undefined) {
       const full = `${directRoot}.${nestedParts.join(".")}`;
       return isKotlinStdlibImport(full) ? undefined : full;
     }
+  }
+  if (isNestedType && /^[a-z]/u.test(rootType)) {
+    return type;
   }
   const direct = info.imports.get(type);
   if (direct !== undefined) {
