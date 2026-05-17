@@ -72,7 +72,7 @@ validation commands and records a patch attempt under `.clawpatch/`.
 - C/C++ standalone `main()` files, CMake `add_executable` / `add_library`
   targets, and autotools `bin_PROGRAMS` / `lib_LTLIBRARIES` targets
 - Python project metadata, console scripts, bounded source groups, pytest suites,
-  and Flask/FastAPI routes
+  and Flask/FastAPI/Django routes
 - SwiftPM `Sources/*` targets and `Tests/*` suites
 - Laravel/PHP projects from `composer.json` and `artisan`, including routes,
   controllers, form requests, Artisan commands, jobs, services, models,

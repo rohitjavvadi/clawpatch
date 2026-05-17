@@ -48,7 +48,7 @@ This discovers reviewable features:
 - Next.js routes
 - Go packages and commands
 - Java/Kotlin Gradle modules
-- Python packages, console scripts, Flask/FastAPI routes, and pytest suites
+- Python packages, console scripts, Flask/FastAPI/Django routes, and pytest suites
 - JVM semantic role groups
 - Ruby packages, Rails apps, executables, and tests
 - Rust crates and binaries
