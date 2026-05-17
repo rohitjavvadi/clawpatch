@@ -77,6 +77,28 @@ describe("extractJson", () => {
     expect(extractJson(input)).toEqual({ title: "x", nested: { a: 1 } });
   });
 
+  it("skips malformed brace candidates before valid JSON", () => {
+    const input = 'thinking { not-json } final {"outcome":"fixed","reasoning":"ok","commands":[]}';
+
+    expect(extractJson(input)).toEqual({
+      outcome: "fixed",
+      reasoning: "ok",
+      commands: [],
+    });
+  });
+
+  it("does not parse nested JSON from malformed preambles", () => {
+    const input =
+      'draft { outer: {"outcome":"draft","reasoning":"x","commands":[]} } final ' +
+      '{"outcome":"fixed","reasoning":"ok","commands":[]}';
+
+    expect(extractJson(input)).toEqual({
+      outcome: "fixed",
+      reasoning: "ok",
+      commands: [],
+    });
+  });
+
   it("returns null for text with no valid JSON", () => {
     expect(extractJson("no json here at all")).toBeNull();
     expect(extractJson("just some words { unbalanced")).toBeNull();

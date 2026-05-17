@@ -11,8 +11,8 @@ export function extractJson(text: string): unknown | null {
       return JSON.parse(candidate);
     } catch {}
   }
-  const firstBrace = text.indexOf("{");
-  if (firstBrace !== -1) {
+  let firstBrace = text.indexOf("{");
+  while (firstBrace !== -1) {
     let depth = 0;
     let inString = false;
     let escape = false;
@@ -39,11 +39,15 @@ export function extractJson(text: string): unknown | null {
             try {
               return JSON.parse(candidate);
             } catch {
-              return null;
+              firstBrace = text.indexOf("{", i + 1);
+              break;
             }
           }
         }
       }
+    }
+    if (depth !== 0) {
+      firstBrace = -1;
     }
   }
   return null;
