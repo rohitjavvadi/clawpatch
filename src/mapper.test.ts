@@ -4397,6 +4397,42 @@ describe("mapFeatures", () => {
     expect(viewModel?.source).toBe("kotlin-android-role-view-model");
   });
 
+  it("keeps Kotlin DSL Android plugin declarations before unrelated backtick apply false entries", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-backtick-apply-false-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(
+      root,
+      "build.gradle.kts",
+      [
+        "plugins {",
+        '  id("com.android.application") version "8.0"',
+        "  `java-library` apply false",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/ui/MainViewModel.kt",
+      [
+        "package com.example.ui",
+        "",
+        "import androidx.lifecycle.ViewModel",
+        "",
+        "class MainViewModel : ViewModel()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const viewModel = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin Android role view model "),
+    );
+
+    expect(viewModel?.source).toBe("kotlin-android-role-view-model");
+  });
+
   it("keeps Android plugin declarations before same-line unrelated apply false entries", async () => {
     const root = await fixtureRoot("clawpatch-kotlin-android-same-line-apply-false-");
     await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
@@ -6008,6 +6044,40 @@ describe("mapFeatures", () => {
         "class JobFactory : JobFactoryBase()",
         "",
         "fun helper() = Unit",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const component = result.features.find(
+      (feature) =>
+        feature.source === "kotlin-server-role-framework-component" &&
+        feature.ownedFiles.some(
+          (file) => file.path === "src/main/kotlin/com/example/jobs/JobFactory.kt",
+        ),
+    );
+
+    expect(component?.ownedFiles[0]?.reason).toContain(
+      "inherits external type org.scheduler.JobFactoryBase",
+    );
+  });
+
+  it("maps bodyless Kotlin supertypes before expect and actual declarations", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-bodyless-supertype-expect-actual-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/jobs/JobFactory.kt",
+      [
+        "package com.example.jobs",
+        "",
+        "import org.scheduler.JobFactoryBase",
+        "",
+        "class JobFactory : JobFactoryBase()",
+        "actual class NativeJob",
+        "expect fun scheduleJob()",
         "",
       ].join("\n"),
     );

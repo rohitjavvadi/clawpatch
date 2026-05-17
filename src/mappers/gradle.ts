@@ -1365,7 +1365,7 @@ function parseJavaDeclarations(source: string): JavaDeclaration[] {
 function parseKotlinDeclarations(source: string): KotlinDeclaration[] {
   const declarations: KotlinDeclaration[] = [];
   const declarationPattern =
-    /\b(?:(?:data|sealed|open|abstract|final|inner|value|annotation)\s+)*(?:(enum)\s+)?(?:(fun)\s+)?(class|interface|object)\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*<[^{};]*>)?(?:(?:\s+(?:@[A-Za-z_][A-Za-z0-9_.]*(?:\([^(){}]*\))?\s*)*(?:(?:public|private|protected|internal)\s+)?constructor\s*\((?:[^(){}]|\([^(){}]*\))*\))|(?:\s*\((?:[^(){}]|\([^(){}]*\))*\)))?(?:\s*:\s*([^{}]+?)(?=\s*(?:\{|\n\s*(?:@[A-Za-z_][A-Za-z0-9_.]*(?:\([^(){}]*\))?\s*)*(?:(?:public|private|protected|internal|const|lateinit|suspend|inline|tailrec|operator|infix|external)\s+)*(?:(?:(?:data|sealed|open|abstract|final|inner|value|annotation)\s+)*(?:enum\s+)?(?:fun\s+)?(?:class|interface|object)|fun|val|var|typealias)\s+|$)))?/gsu;
+    /\b(?:(?:expect|actual|data|sealed|open|abstract|final|inner|value|annotation)\s+)*(?:(enum)\s+)?(?:(fun)\s+)?(class|interface|object)\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*<[^{};]*>)?(?:(?:\s+(?:@[A-Za-z_][A-Za-z0-9_.]*(?:\([^(){}]*\))?\s*)*(?:(?:public|private|protected|internal)\s+)?constructor\s*\((?:[^(){}]|\([^(){}]*\))*\))|(?:\s*\((?:[^(){}]|\([^(){}]*\))*\)))?(?:\s*:\s*([^{}]+?)(?=\s*(?:\{|\n\s*(?:@[A-Za-z_][A-Za-z0-9_.]*(?:\([^(){}]*\))?\s*)*(?:(?:expect|actual|public|private|protected|internal|const|lateinit|suspend|inline|tailrec|operator|infix|external)\s+)*(?:(?:(?:expect|actual|data|sealed|open|abstract|final|inner|value|annotation)\s+)*(?:enum\s+)?(?:fun\s+)?(?:class|interface|object)|fun|val|var|typealias)\s+|$)))?/gsu;
   for (const match of source.matchAll(declarationPattern)) {
     const rawKind = match[3];
     const name = match[4];
@@ -2282,7 +2282,7 @@ function gradlePluginInvocationEnd(source: string, start: number): number {
     }
     if (
       char === "\n" &&
-      /^\s*(?:id\s*(?:\(|["'])|alias\s*\(|kotlin\s*\()/u.test(source.slice(index + 1))
+      /^\s*(?:id\s*(?:\(|["'])|alias\s*\(|kotlin\s*\(|`[^`]+`)/u.test(source.slice(index + 1))
     ) {
       return index;
     }
