@@ -37,6 +37,7 @@ clawpatch next
 clawpatch show --finding <id>
 clawpatch triage --finding <id> --status false-positive --note "covered by tests"
 clawpatch fix --finding <id>
+clawpatch open-pr --patch <patchAttemptId> --draft
 clawpatch revalidate --finding <id>
 clawpatch revalidate --all --status open
 ```
@@ -129,6 +130,7 @@ Supported provider names today:
 - `clawpatch show --finding <id>`: inspect one finding with evidence and suggested validation
 - `clawpatch triage --finding <id> --status <status>`: mark a finding with optional history note
 - `clawpatch fix --finding <id>`: run the explicit patch loop for one finding
+- `clawpatch open-pr --patch <id>`: commit an applied patch attempt and open a GitHub PR
 - `clawpatch revalidate --finding <id>`: re-check one finding
 - `clawpatch revalidate --all`: re-check open findings with report-style filters
 - `clawpatch doctor`: check provider availability

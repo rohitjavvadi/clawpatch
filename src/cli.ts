@@ -14,6 +14,7 @@ import {
   revalidateCommand,
   reviewCommand,
   nextCommand,
+  openPrCommand,
   showCommand,
   statusCommand,
   triageCommand,
@@ -64,6 +65,8 @@ async function dispatch(
       return triageCommand(context, flags);
     case "fix":
       return fixCommand(context, flags);
+    case "open-pr":
+      return openPrCommand(context, flags);
     case "revalidate":
       return revalidateCommand(context, flags);
     case "doctor":
@@ -180,6 +183,7 @@ const commandFlags = {
   next: new Set(["status", "project"]),
   triage: new Set(["finding", "status", "note"]),
   fix: new Set(["finding", "provider", "model", "reasoningEffort", "skipGitRepoCheck", "dryRun"]),
+  "open-pr": new Set(["patch", "base", "branch", "title", "draft", "dryRun", "force"]),
   revalidate: new Set([
     "finding",
     "all",
@@ -203,6 +207,7 @@ const requiredCommandFlags: Partial<Record<keyof typeof commandFlags, string[]>>
   show: ["finding"],
   triage: ["finding", "status"],
   fix: ["finding"],
+  "open-pr": ["patch"],
 };
 
 const valueFlagNames = new Set([
@@ -228,6 +233,10 @@ const valueFlagNames = new Set([
   "triage",
   "project",
   "note",
+  "patch",
+  "base",
+  "branch",
+  "title",
 ]);
 
 const booleanFlagNames = new Set([
@@ -242,6 +251,7 @@ const booleanFlagNames = new Set([
   "skip-git-repo-check",
   "force",
   "all",
+  "draft",
 ]);
 
 const shortFlagNames = new Set(["-h", "-q", "-v", "-o"]);
@@ -509,6 +519,24 @@ Flags:
 `);
     return;
   }
+  if (command === "open-pr") {
+    process.stdout.write(`clawpatch open-pr
+
+Usage:
+  clawpatch open-pr --patch <id> [flags]
+
+Flags:
+  --patch <id>
+  --base <branch>
+  --branch <branch>
+  --title <title>
+  --draft
+  --dry-run
+  --force
+  --json
+`);
+    return;
+  }
   if (command === "init") {
     process.stdout.write(`clawpatch init
 
@@ -615,6 +643,7 @@ Commands:
   next
   triage
   fix
+  open-pr
   revalidate
   doctor
   clean-locks

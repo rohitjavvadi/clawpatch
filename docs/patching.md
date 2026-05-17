@@ -34,10 +34,23 @@ Status updates:
 The CLI does not currently mark a finding `fixed` from the patch pass alone.
 Use `clawpatch revalidate --finding <id>` for a second pass.
 
+## Opening a PR
+
+After reviewing the applied worktree changes, create a GitHub PR explicitly:
+
+```bash
+clawpatch open-pr --patch <patchAttemptId> --draft
+```
+
+`open-pr` requires an applied or validated patch attempt with recorded changed
+files. It refuses failed validation unless `--force` is passed, commits only the
+recorded patch files, pushes the branch, and calls the GitHub CLI. Use
+`--dry-run` to preview the branch, title, body, and commands without touching
+git.
+
 Not implemented yet:
 
 - fixing by severity or category
 - batching multiple findings
 - auto-commit
-- PR creation
 - rollback snapshots

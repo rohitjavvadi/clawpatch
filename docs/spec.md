@@ -330,10 +330,8 @@ Behavior:
 - Requires existing patch attempt with changed files.
 - Requires clean validation state unless `--force`.
 - Creates branch/commit/PR only after explicit command.
-- Uses repo-native commit helper if configured.
-- PR body includes findings, tests, revalidation, and links to state report.
-
-Post-v0.
+- Uses the GitHub CLI to create the PR after committing the recorded patch files.
+- PR body includes linked findings, changed files, validation output, and the patch plan.
 
 ### `clawpatch land`
 

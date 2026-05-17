@@ -1,5 +1,5 @@
 import { appendFile, readFile, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { hostname } from "node:os";
 import {
   changedPathsBetweenSnapshots,
@@ -9,7 +9,7 @@ import {
 import { loadConfig, resolveStateDir, GlobalOptions } from "./config.js";
 import { detectProject } from "./detect.js";
 import { ClawpatchError, assertDefined } from "./errors.js";
-import { runCommand } from "./exec.js";
+import { runCommand, runCommandArgs } from "./exec.js";
 import {
   appendFindingHistory,
   findingFromOutput,
@@ -1021,6 +1021,98 @@ export async function fixCommand(
   };
 }
 
+export async function openPrCommand(
+  context: AppContext,
+  flags: Record<string, string | boolean>,
+): Promise<unknown> {
+  const loaded = await loadProjectState(context);
+  const patchId = assertDefined(stringFlag(flags, "patch"), "missing --patch");
+  const patches = await readPatchAttempts(loaded.paths);
+  const patch = assertDefined(
+    patches.find((candidate) => candidate.patchAttemptId === patchId),
+    `patch attempt not found: ${patchId}`,
+  );
+  const force = flags["force"] === true;
+  validatePrPatch(patch, force);
+  const git = await discoverGit(loaded.root);
+  if (git.root === null) {
+    throw new ClawpatchError("open-pr requires a git repository", 2, "not-git-repository");
+  }
+  const base = stringFlag(flags, "base") ?? git.defaultBranch ?? "main";
+  const branch = prBranchName(patch, stringFlag(flags, "branch"), git.currentBranch, base);
+  const findings = await readFindings(loaded.paths);
+  const linkedFindings = findings.filter((finding) => patch.findingIds.includes(finding.findingId));
+  const title = prTitle(stringFlag(flags, "title"), linkedFindings, patch);
+  const body = renderPatchPrBody(patch, linkedFindings);
+  const gitFiles = gitRelativePatchFiles(git.root, loaded.root, patch.filesChanged);
+  const commands = plannedPrCommands(patch, branch, base, title);
+  if (flags["dryRun"] === true) {
+    return {
+      dryRun: true,
+      patchAttempt: patch.patchAttemptId,
+      branch,
+      base,
+      title,
+      body,
+      commands,
+    };
+  }
+
+  await assertPatchWorktree(patch, git.root, loaded.paths.stateDir, gitFiles, force);
+  let commitSha = patch.git.commitSha;
+  if (commitSha === null) {
+    if (git.currentBranch !== branch) {
+      await checkedRun("git switch", runCommandArgs("git", ["switch", "-c", branch], git.root));
+    }
+    await checkedRun("git add", runCommandArgs("git", ["add", "--", ...gitFiles], git.root));
+    await checkedRun(
+      "git commit",
+      runCommandArgs("git", ["commit", "-m", title], git.root),
+    );
+    const commit = await checkedRun(
+      "git rev-parse",
+      runCommandArgs("git", ["rev-parse", "HEAD"], git.root),
+    );
+    commitSha = commit.stdout.trim();
+  }
+  await checkedRun("git push", runCommandArgs("git", ["push", "-u", "origin", branch], git.root));
+  const ghArgs = [
+    "pr",
+    "create",
+    "--base",
+    base,
+    "--head",
+    branch,
+    "--title",
+    title,
+    "--body-file",
+    "-",
+  ];
+  if (flags["draft"] === true) {
+    ghArgs.push("--draft");
+  }
+  const gh = await checkedRun("gh pr create", runCommandArgs(githubCli(), ghArgs, git.root, body));
+  const prUrl = firstUrl(gh.stdout) ?? gh.stdout.trim();
+  await writePatchAttempt(loaded.paths, {
+    ...patch,
+    git: {
+      ...patch.git,
+      commitSha,
+      branchName: branch,
+      prUrl,
+    },
+    updatedAt: nowIso(),
+  });
+  return {
+    patchAttempt: patch.patchAttemptId,
+    branch,
+    base,
+    commit: commitSha,
+    pr: prUrl,
+    next: prUrl.length > 0 ? prUrl : "inspect GitHub CLI output",
+  };
+}
+
 export async function doctorCommand(
   context: AppContext,
   flags: Record<string, string | boolean> = {},
@@ -1182,6 +1274,222 @@ function stringField(value: unknown, field: string): string | undefined {
   }
   const candidate = (value as Record<string, unknown>)[field];
   return typeof candidate === "string" ? candidate : undefined;
+}
+
+function validatePrPatch(patch: PatchAttempt, force: boolean): void {
+  if (patch.filesChanged.length === 0) {
+    throw new ClawpatchError(`patch has no changed files: ${patch.patchAttemptId}`, 2, "invalid-input");
+  }
+  if (!["applied", "validated"].includes(patch.status) && !force) {
+    throw new ClawpatchError(
+      `patch is not ready for PR: ${patch.patchAttemptId} (${patch.status})`,
+      2,
+      "invalid-input",
+    );
+  }
+  const failed = patch.testResults.filter((result) => result.exitCode !== 0);
+  if (failed.length > 0 && !force) {
+    throw new ClawpatchError(
+      `patch validation failed; use --force to open a PR anyway: ${failed[0]?.command ?? "unknown"}`,
+      6,
+      "validation-failed",
+    );
+  }
+}
+
+function prBranchName(
+  patch: PatchAttempt,
+  explicit: string | undefined,
+  currentBranch: string | null,
+  base: string,
+): string {
+  if (explicit !== undefined) {
+    return explicit;
+  }
+  if (
+    patch.git.branchName !== null &&
+    patch.git.branchName !== base &&
+    patch.git.branchName !== "main" &&
+    patch.git.branchName !== "master"
+  ) {
+    return patch.git.branchName;
+  }
+  if (
+    currentBranch !== null &&
+    currentBranch !== base &&
+    currentBranch !== "main" &&
+    currentBranch !== "master"
+  ) {
+    return currentBranch;
+  }
+  return `clawpatch/${patch.patchAttemptId}`;
+}
+
+function prTitle(
+  explicit: string | undefined,
+  findings: FindingRecord[],
+  patch: PatchAttempt,
+): string {
+  if (explicit !== undefined) {
+    return explicit;
+  }
+  const title = findings[0]?.title ?? patch.plan.split("\n")[0] ?? patch.patchAttemptId;
+  return `fix: ${title}`.slice(0, 120);
+}
+
+function renderPatchPrBody(patch: PatchAttempt, findings: FindingRecord[]): string {
+  const lines = [
+    "## Summary",
+    "",
+    `- patch attempt: \`${patch.patchAttemptId}\``,
+    `- status: \`${patch.status}\``,
+    `- files changed: ${patch.filesChanged.length}`,
+    "",
+    "## Findings",
+    "",
+  ];
+  if (findings.length === 0) {
+    lines.push("- none linked");
+  } else {
+    for (const finding of findings) {
+      lines.push(`- \`${finding.findingId}\`: ${finding.title} (${finding.severity})`);
+    }
+  }
+  lines.push("", "## Changed Files", "");
+  for (const file of patch.filesChanged) {
+    lines.push(`- \`${file}\``);
+  }
+  lines.push("", "## Validation", "");
+  const validation = patch.testResults.length > 0 ? patch.testResults : patch.commandsRun;
+  if (validation.length === 0) {
+    lines.push("- none recorded");
+  } else {
+    for (const result of validation) {
+      lines.push(`- \`${result.command}\` => ${result.exitCode ?? "unknown"}`);
+    }
+  }
+  lines.push("", "## Plan", "", patch.plan, "");
+  return `${lines.join("\n")}\n`;
+}
+
+function gitRelativePatchFiles(gitRoot: string, projectRoot: string, files: string[]): string[] {
+  const projectPrefix = normalizePath(relative(gitRoot, projectRoot));
+  const scopedPrefix =
+    projectPrefix.length > 0 &&
+    projectPrefix !== "." &&
+    !projectPrefix.startsWith("../") &&
+    projectPrefix !== ".."
+      ? projectPrefix
+      : "";
+  return files.map((file) => {
+    const relativeFile = normalizePath(file);
+    if (
+      relativeFile.startsWith("../") ||
+      relativeFile === ".." ||
+      relativeFile.split("/").includes("..") ||
+      resolve(relativeFile) === relativeFile ||
+      relativeFile.length === 0
+    ) {
+      throw new ClawpatchError(`patch file escapes git repository: ${file}`, 2, "invalid-input");
+    }
+    return scopedPrefix.length === 0 ? relativeFile : `${scopedPrefix}/${relativeFile}`;
+  });
+}
+
+function plannedPrCommands(
+  patch: PatchAttempt,
+  branch: string,
+  base: string,
+  title: string,
+): string[] {
+  const commands: string[] = [];
+  if (patch.git.commitSha === null) {
+    commands.push(`git switch -c ${branch}`);
+    commands.push(`git add -- ${patch.filesChanged.join(" ")}`);
+    commands.push(`git commit -m ${title}`);
+  }
+  commands.push(`git push -u origin ${branch}`);
+  commands.push(`gh pr create --base ${base} --head ${branch} --title ${title} --body-file -`);
+  return commands;
+}
+
+async function assertPatchWorktree(
+  patch: PatchAttempt,
+  gitRoot: string,
+  stateDir: string,
+  gitFiles: string[],
+  force: boolean,
+): Promise<void> {
+  if (patch.git.commitSha !== null) {
+    return;
+  }
+  const status = await checkedRun(
+    "git status",
+    runCommandArgs("git", ["status", "--porcelain", "--untracked-files=all"], gitRoot, undefined, {
+      trimOutput: false,
+    }),
+  );
+  const dirty = gitStatusPaths(status.stdout);
+  const statePrefix = normalizePath(relative(gitRoot, stateDir));
+  const sourceDirty = dirty.filter((file) => !isStatePath(file, statePrefix));
+  if (sourceDirty.length === 0) {
+    throw new ClawpatchError("no uncommitted patch changes to commit", 2, "invalid-input");
+  }
+  const expected = new Set(gitFiles);
+  const extra = sourceDirty.filter((file) => !expected.has(file));
+  if (extra.length > 0 && !force) {
+    throw new ClawpatchError(
+      `dirty worktree has files outside patch attempt: ${extra.join(", ")}`,
+      3,
+      "dirty-worktree",
+    );
+  }
+  const missing = gitFiles.filter((file) => !sourceDirty.includes(file));
+  if (missing.length > 0 && !force) {
+    throw new ClawpatchError(
+      `patch files are not dirty in the worktree: ${missing.join(", ")}`,
+      2,
+      "invalid-input",
+    );
+  }
+}
+
+function gitStatusPaths(output: string): string[] {
+  return output
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 3)
+    .map((line) => line.slice(3))
+    .map((path) => path.split(" -> ").at(-1) ?? path)
+    .map(normalizePath);
+}
+
+function isStatePath(file: string, statePrefix: string): boolean {
+  return statePrefix.length > 0 && (file === statePrefix || file.startsWith(`${statePrefix}/`));
+}
+
+async function checkedRun(label: string, resultPromise: Promise<CommandResult>): Promise<CommandResult> {
+  const result = await resultPromise;
+  if (result.exitCode !== 0) {
+    throw new ClawpatchError(
+      `${label} failed: ${result.stderr || result.stdout}`,
+      label.startsWith("gh") ? 7 : 1,
+      label.startsWith("gh") ? "github-failure" : "git-failure",
+    );
+  }
+  return result;
+}
+
+function githubCli(): string {
+  return process.env["CLAWPATCH_GH"] ?? "gh";
+}
+
+function firstUrl(output: string): string | null {
+  return /https?:\/\/\S+/u.exec(output)?.[0] ?? null;
+}
+
+function normalizePath(path: string): string {
+  return path.replace(/\\/gu, "/");
 }
 
 function providerOptions(config: ReturnType<typeof applyProviderFlags>) {

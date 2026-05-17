@@ -21,6 +21,7 @@ import {
   makeContext,
   mapCommand,
   nextCommand,
+  openPrCommand,
   reportCommand,
   revalidateCommand,
   reviewCommand,
@@ -46,12 +47,13 @@ import {
   statePaths,
   writeFeature,
   writeFinding,
+  writePatchAttempt,
 } from "./state.js";
 import { buildFixPrompt, buildReviewPrompt } from "./prompt.js";
 import type { Provider } from "./provider.js";
 import { fixtureRoot, testOptions, writeFixture } from "./test-helpers.js";
 import { findingRecordSchema } from "./types.js";
-import type { FeatureRecord } from "./types.js";
+import type { FeatureRecord, PatchAttempt } from "./types.js";
 
 async function sinceFixture(prefix: string): Promise<string> {
   const root = await fixtureRoot(prefix);
@@ -244,6 +246,25 @@ describe("workflow", () => {
     expect(parseArgs(["fix", "--finding", "f", "--dry-run"]).flags).toMatchObject({
       dryRun: true,
       finding: "f",
+    });
+    expect(
+      parseArgs([
+        "open-pr",
+        "--patch",
+        "pat_123",
+        "--base",
+        "main",
+        "--branch",
+        "clawpatch/pat_123",
+        "--draft",
+        "--dry-run",
+      ]).flags,
+    ).toMatchObject({
+      patch: "pat_123",
+      base: "main",
+      branch: "clawpatch/pat_123",
+      draft: true,
+      dryRun: true,
     });
   });
 
@@ -3080,6 +3101,93 @@ describe("workflow", () => {
 
     expect(symlinkPrompt).toContain("[skipped: path escapes repository root]");
     expect(symlinkPrompt).not.toContain("do-not-read");
+  });
+
+  it("previews a PR for an applied patch attempt", async () => {
+    const root = await fixtureRoot("clawpatch-open-pr-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "open-pr", bin: { open: "src/index.ts" } }),
+    );
+    await writeFixture(root, "src/index.ts", "export const value = 'TODO_BUG';\n");
+    await initGit(root);
+    await checkCommand(root, "git add package.json src/index.ts");
+    await checkCommand(root, 'git -c commit.gpgsign=false commit -q -m "base"');
+    const previousProvider = process.env["CLAWPATCH_PROVIDER"];
+    process.env["CLAWPATCH_PROVIDER"] = "mock";
+    try {
+      const context = await makeContext(testOptions(root));
+      const paths = statePaths(join(root, ".clawpatch"));
+      await initCommand(context, {});
+      await mapCommand(context);
+      await reviewCommand(context, { limit: "1" });
+      const finding = (await readFindings(paths))[0];
+      expect(finding).toBeDefined();
+      await writeFixture(root, "src/index.ts", "export const value = 'fixed';\n");
+      const baseSha = (await runCommand("git rev-parse HEAD", root)).stdout.trim();
+      const now = new Date().toISOString();
+      const patch: PatchAttempt = {
+        schemaVersion: 1,
+        patchAttemptId: "pat_open_pr",
+        findingIds: [finding!.findingId],
+        featureIds: [finding!.featureId],
+        status: "applied",
+        plan: "Replace the marker value.",
+        filesChanged: ["src/index.ts"],
+        commandsRun: [],
+        testResults: [
+          {
+            command: "pnpm test",
+            cwd: root,
+            exitCode: 0,
+            durationMs: 1,
+            stdout: "",
+            stderr: "",
+          },
+        ],
+        provider: null,
+        git: {
+          baseSha,
+          commitSha: null,
+          branchName: null,
+          prUrl: null,
+        },
+        createdAt: now,
+        updatedAt: now,
+      };
+      await writePatchAttempt(paths, patch);
+
+      const preview = await openPrCommand(context, {
+        patch: patch.patchAttemptId,
+        base: "main",
+        branch: "clawpatch/pat_open_pr",
+        dryRun: true,
+      });
+      const stored = (await readPatchAttempts(paths)).find(
+        (candidate) => candidate.patchAttemptId === patch.patchAttemptId,
+      );
+
+      expect(preview).toMatchObject({
+        dryRun: true,
+        patchAttempt: patch.patchAttemptId,
+        branch: "clawpatch/pat_open_pr",
+        base: "main",
+      });
+      expect(preview).toMatchObject({
+        body: expect.stringContaining("pat_open_pr"),
+        commands: expect.arrayContaining([
+          expect.stringContaining("gh pr create --base main --head clawpatch/pat_open_pr"),
+        ]),
+      });
+      expect(stored?.git.prUrl).toBeNull();
+    } finally {
+      if (previousProvider === undefined) {
+        delete process.env["CLAWPATCH_PROVIDER"];
+      } else {
+        process.env["CLAWPATCH_PROVIDER"] = previousProvider;
+      }
+    }
   });
 
   it("persists failed patch attempts when provider fix throws", async () => {
