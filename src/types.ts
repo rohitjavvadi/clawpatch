@@ -90,6 +90,12 @@ export const projectCommandsSchema = z.object({
 
 export type ProjectCommands = z.infer<typeof projectCommandsSchema>;
 
+export const reasoningEfforts = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
+
+export const reasoningEffortSchema = z.enum(reasoningEfforts);
+
+export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
+
 export const projectRecordSchema = z.object({
   schemaVersion: z.literal(1),
   projectId: z.string(),
@@ -121,6 +127,7 @@ export const configSchema = z.object({
   provider: z.object({
     name: z.string(),
     model: z.string().nullable(),
+    reasoningEffort: reasoningEffortSchema.nullable().optional().default(null),
   }),
   commands: projectCommandsSchema,
   review: z.object({
@@ -161,6 +168,7 @@ export const analysisEntrySchema = z.object({
   summary: z.string(),
   provider: z.string().nullable(),
   model: z.string().nullable(),
+  reasoningEffort: reasoningEffortSchema.nullable().optional().default(null),
   createdAt: z.string(),
 });
 
@@ -279,6 +287,7 @@ export const patchAttemptSchema = z.object({
     .object({
       name: z.string(),
       model: z.string().nullable(),
+      reasoningEffort: reasoningEffortSchema.nullable().optional().default(null),
       requestId: z.string().nullable(),
       startedAt: z.string(),
       finishedAt: z.string(),

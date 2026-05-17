@@ -14,6 +14,7 @@ import { delimiter, join } from "node:path";
 import {
   fixCommand,
   cleanLocksCommand,
+  doctorCommand,
   initCommand,
   makeContext,
   mapCommand,
@@ -224,7 +225,10 @@ describe("workflow", () => {
       source: "auto",
       provider: "mock",
     });
-    expect(parseArgs(["review", "--dry-run"]).flags).toMatchObject({ dryRun: true });
+    expect(parseArgs(["review", "--reasoning-effort", "xhigh", "--dry-run"]).flags).toMatchObject({
+      dryRun: true,
+      reasoningEffort: "xhigh",
+    });
     expect(parseArgs(["fix", "--finding", "f", "--dry-run"]).flags).toMatchObject({
       dryRun: true,
       finding: "f",
@@ -1148,13 +1152,13 @@ describe("workflow", () => {
     const first = await mapWithSource(root, project, [], heuristic, {
       source: "agent",
       provider,
-      model: null,
+      providerOptions: { model: null, reasoningEffort: null },
     });
     title = "Background worker package";
     const second = await mapWithSource(root, project, first.features, heuristic, {
       source: "agent",
       provider,
-      model: null,
+      providerOptions: { model: null, reasoningEffort: null },
     });
 
     expect(first.features).toHaveLength(1);
@@ -1246,6 +1250,36 @@ describe("workflow", () => {
     expect(project?.name).toBe("env-state");
     await expect(access(join(root, ".clawpatch"))).rejects.toThrow();
     delete process.env["CLAWPATCH_STATE_DIR"];
+  });
+
+  it("loads and reports Codex reasoning effort overrides", async () => {
+    const root = await fixtureRoot("clawpatch-reasoning-effort-");
+    await writeFixture(root, "package.json", JSON.stringify({ name: "reasoning-effort" }));
+    const previousProvider = process.env["CLAWPATCH_PROVIDER"];
+    const previousReasoning = process.env["CLAWPATCH_REASONING_EFFORT"];
+    process.env["CLAWPATCH_PROVIDER"] = "mock";
+    process.env["CLAWPATCH_REASONING_EFFORT"] = "xhigh";
+    try {
+      const context = await makeContext(testOptions(root));
+
+      await initCommand(context, {});
+      const config = await loadConfig(root, testOptions(root));
+      const doctor = await doctorCommand(context, {});
+
+      expect(config.provider.reasoningEffort).toBe("xhigh");
+      expect(doctor).toMatchObject({ provider: "mock", reasoningEffort: "xhigh" });
+    } finally {
+      if (previousProvider === undefined) {
+        delete process.env["CLAWPATCH_PROVIDER"];
+      } else {
+        process.env["CLAWPATCH_PROVIDER"] = previousProvider;
+      }
+      if (previousReasoning === undefined) {
+        delete process.env["CLAWPATCH_REASONING_EFFORT"];
+      } else {
+        process.env["CLAWPATCH_REASONING_EFFORT"] = previousReasoning;
+      }
+    }
   });
 
   it("allows fix dry-run when only the default state dir is dirty", async () => {

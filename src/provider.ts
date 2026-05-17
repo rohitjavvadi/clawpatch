@@ -12,15 +12,21 @@ import {
   fixPlanOutputSchema,
   reviewOutputSchema,
   revalidateOutputSchema,
+  type ReasoningEffort,
 } from "./types.js";
+
+export type ProviderOptions = {
+  model: string | null;
+  reasoningEffort: ReasoningEffort | null;
+};
 
 export type Provider = {
   name: string;
   check(root: string): Promise<string>;
-  map(root: string, prompt: string, model: string | null): Promise<AgentMapOutput>;
-  review(root: string, prompt: string, model: string | null): Promise<ReviewOutput>;
-  fix(root: string, prompt: string, model: string | null): Promise<FixPlanOutput>;
-  revalidate(root: string, prompt: string, model: string | null): Promise<RevalidateOutput>;
+  map(root: string, prompt: string, options: ProviderOptions): Promise<AgentMapOutput>;
+  review(root: string, prompt: string, options: ProviderOptions): Promise<ReviewOutput>;
+  fix(root: string, prompt: string, options: ProviderOptions): Promise<FixPlanOutput>;
+  revalidate(root: string, prompt: string, options: ProviderOptions): Promise<RevalidateOutput>;
 };
 
 export function providerByName(name: string): Provider {
@@ -54,20 +60,24 @@ const codexProvider: Provider = {
     }
     return result.stdout.trim();
   },
-  async map(root: string, prompt: string, model: string | null): Promise<AgentMapOutput> {
-    const output = await runCodexJson(root, prompt, model, agentMapJsonSchema);
+  async map(root: string, prompt: string, options: ProviderOptions): Promise<AgentMapOutput> {
+    const output = await runCodexJson(root, prompt, options, agentMapJsonSchema);
     return agentMapOutputSchema.parse(output);
   },
-  async review(root: string, prompt: string, model: string | null): Promise<ReviewOutput> {
-    const output = await runCodexJson(root, prompt, model, reviewJsonSchema);
+  async review(root: string, prompt: string, options: ProviderOptions): Promise<ReviewOutput> {
+    const output = await runCodexJson(root, prompt, options, reviewJsonSchema);
     return reviewOutputSchema.parse(output);
   },
-  async fix(root: string, prompt: string, model: string | null): Promise<FixPlanOutput> {
-    const output = await runCodexJson(root, prompt, model, fixPlanJsonSchema, "workspace-write");
+  async fix(root: string, prompt: string, options: ProviderOptions): Promise<FixPlanOutput> {
+    const output = await runCodexJson(root, prompt, options, fixPlanJsonSchema, "workspace-write");
     return fixPlanOutputSchema.parse(output);
   },
-  async revalidate(root: string, prompt: string, model: string | null): Promise<RevalidateOutput> {
-    const output = await runCodexJson(root, prompt, model, revalidateJsonSchema);
+  async revalidate(
+    root: string,
+    prompt: string,
+    options: ProviderOptions,
+  ): Promise<RevalidateOutput> {
+    const output = await runCodexJson(root, prompt, options, revalidateJsonSchema);
     return revalidateOutputSchema.parse(output);
   },
 };
@@ -81,20 +91,24 @@ const opencodeProvider: Provider = {
     }
     return result.stdout.trim();
   },
-  async map(root: string, prompt: string, model: string | null): Promise<AgentMapOutput> {
-    const output = await runOpencodeJson(root, prompt, model, agentMapJsonSchema, true);
+  async map(root: string, prompt: string, options: ProviderOptions): Promise<AgentMapOutput> {
+    const output = await runOpencodeJson(root, prompt, options.model, agentMapJsonSchema, true);
     return agentMapOutputSchema.parse(output);
   },
-  async review(root: string, prompt: string, model: string | null): Promise<ReviewOutput> {
-    const output = await runOpencodeJson(root, prompt, model, reviewJsonSchema, true);
+  async review(root: string, prompt: string, options: ProviderOptions): Promise<ReviewOutput> {
+    const output = await runOpencodeJson(root, prompt, options.model, reviewJsonSchema, true);
     return reviewOutputSchema.parse(output);
   },
-  async fix(root: string, prompt: string, model: string | null): Promise<FixPlanOutput> {
-    const output = await runOpencodeJson(root, prompt, model, fixPlanJsonSchema, false);
+  async fix(root: string, prompt: string, options: ProviderOptions): Promise<FixPlanOutput> {
+    const output = await runOpencodeJson(root, prompt, options.model, fixPlanJsonSchema, false);
     return fixPlanOutputSchema.parse(output);
   },
-  async revalidate(root: string, prompt: string, model: string | null): Promise<RevalidateOutput> {
-    const output = await runOpencodeJson(root, prompt, model, revalidateJsonSchema, true);
+  async revalidate(
+    root: string,
+    prompt: string,
+    options: ProviderOptions,
+  ): Promise<RevalidateOutput> {
+    const output = await runOpencodeJson(root, prompt, options.model, revalidateJsonSchema, true);
     return revalidateOutputSchema.parse(output);
   },
 };
@@ -116,20 +130,24 @@ const acpxProvider: Provider = {
     const version = result.stdout.trim();
     return `${version} (tested against ${ACPX_TESTED_VERSIONS})`;
   },
-  async map(root: string, prompt: string, model: string | null): Promise<AgentMapOutput> {
-    const output = await runAcpxJson(root, prompt, model, agentMapJsonSchema, "read");
+  async map(root: string, prompt: string, options: ProviderOptions): Promise<AgentMapOutput> {
+    const output = await runAcpxJson(root, prompt, options.model, agentMapJsonSchema, "read");
     return agentMapOutputSchema.parse(output);
   },
-  async review(root: string, prompt: string, model: string | null): Promise<ReviewOutput> {
-    const output = await runAcpxJson(root, prompt, model, reviewJsonSchema, "read");
+  async review(root: string, prompt: string, options: ProviderOptions): Promise<ReviewOutput> {
+    const output = await runAcpxJson(root, prompt, options.model, reviewJsonSchema, "read");
     return reviewOutputSchema.parse(output);
   },
-  async fix(root: string, prompt: string, model: string | null): Promise<FixPlanOutput> {
-    const output = await runAcpxJson(root, prompt, model, fixPlanJsonSchema, "approve");
+  async fix(root: string, prompt: string, options: ProviderOptions): Promise<FixPlanOutput> {
+    const output = await runAcpxJson(root, prompt, options.model, fixPlanJsonSchema, "approve");
     return fixPlanOutputSchema.parse(output);
   },
-  async revalidate(root: string, prompt: string, model: string | null): Promise<RevalidateOutput> {
-    const output = await runAcpxJson(root, prompt, model, revalidateJsonSchema, "read");
+  async revalidate(
+    root: string,
+    prompt: string,
+    options: ProviderOptions,
+  ): Promise<RevalidateOutput> {
+    const output = await runAcpxJson(root, prompt, options.model, revalidateJsonSchema, "read");
     return revalidateOutputSchema.parse(output);
   },
 };
@@ -143,20 +161,24 @@ const grokProvider: Provider = {
     }
     return result.stdout.trim();
   },
-  async map(root: string, prompt: string, model: string | null): Promise<AgentMapOutput> {
-    const output = await runGrokJson(root, prompt, model, agentMapJsonSchema, true);
+  async map(root: string, prompt: string, options: ProviderOptions): Promise<AgentMapOutput> {
+    const output = await runGrokJson(root, prompt, options.model, agentMapJsonSchema, true);
     return agentMapOutputSchema.parse(output);
   },
-  async review(root: string, prompt: string, model: string | null): Promise<ReviewOutput> {
-    const output = await runGrokJson(root, prompt, model, reviewJsonSchema, true);
+  async review(root: string, prompt: string, options: ProviderOptions): Promise<ReviewOutput> {
+    const output = await runGrokJson(root, prompt, options.model, reviewJsonSchema, true);
     return reviewOutputSchema.parse(output);
   },
-  async fix(root: string, prompt: string, model: string | null): Promise<FixPlanOutput> {
-    const output = await runGrokJson(root, prompt, model, fixPlanJsonSchema, false);
+  async fix(root: string, prompt: string, options: ProviderOptions): Promise<FixPlanOutput> {
+    const output = await runGrokJson(root, prompt, options.model, fixPlanJsonSchema, false);
     return fixPlanOutputSchema.parse(output);
   },
-  async revalidate(root: string, prompt: string, model: string | null): Promise<RevalidateOutput> {
-    const output = await runGrokJson(root, prompt, model, revalidateJsonSchema, true);
+  async revalidate(
+    root: string,
+    prompt: string,
+    options: ProviderOptions,
+  ): Promise<RevalidateOutput> {
+    const output = await runGrokJson(root, prompt, options.model, revalidateJsonSchema, true);
     return revalidateOutputSchema.parse(output);
   },
 };
@@ -276,7 +298,7 @@ const mockFailProvider: Provider = {
 async function runCodexJson(
   root: string,
   prompt: string,
-  model: string | null,
+  options: ProviderOptions,
   schema: object,
   sandbox = "read-only",
 ): Promise<unknown> {
@@ -295,9 +317,7 @@ async function runCodexJson(
     "--output-last-message",
     outputPath,
   ];
-  if (model !== null) {
-    args.push("--model", model);
-  }
+  addCodexModelArgs(args, options);
   args.push("-");
   const result = await runCommandArgs("codex", args, root, prompt);
   if (result.exitCode !== 0) {
@@ -312,6 +332,15 @@ async function runCodexJson(
     throw new ClawpatchError("codex provider produced no JSON output", 8, "malformed-output");
   }
   return parseCodexJson(raw);
+}
+
+function addCodexModelArgs(args: string[], options: ProviderOptions): void {
+  if (options.model !== null) {
+    args.push("--model", options.model);
+  }
+  if (options.reasoningEffort !== null) {
+    args.push("-c", `model_reasoning_effort="${options.reasoningEffort}"`);
+  }
 }
 
 const OPENCODE_READ_ONLY_PERMISSION = JSON.stringify({
@@ -862,6 +891,7 @@ function acpxTimeoutMs(): number {
 // eslint-disable-next-line no-underscore-dangle
 export const __testing = {
   acpxFailureMessage,
+  addCodexModelArgs,
   extractAcpxJson,
   extractOpencodeJson,
   parseAcpxAgent,

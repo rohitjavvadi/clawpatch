@@ -146,14 +146,24 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
 const commandFlags = {
   init: new Set(["force"]),
-  map: new Set(["dryRun", "source", "provider", "model"]),
+  map: new Set(["dryRun", "source", "provider", "model", "reasoningEffort"]),
   status: new Set<string>(),
-  review: new Set(["feature", "project", "limit", "since", "jobs", "provider", "model", "dryRun"]),
+  review: new Set([
+    "feature",
+    "project",
+    "limit",
+    "since",
+    "jobs",
+    "provider",
+    "model",
+    "reasoningEffort",
+    "dryRun",
+  ]),
   report: new Set(["status", "severity", "feature", "project", "category", "triage", "output"]),
   show: new Set(["finding"]),
   next: new Set(["status", "project"]),
   triage: new Set(["finding", "status", "note"]),
-  fix: new Set(["finding", "provider", "model", "dryRun"]),
+  fix: new Set(["finding", "provider", "model", "reasoningEffort", "dryRun"]),
   revalidate: new Set([
     "finding",
     "all",
@@ -166,8 +176,9 @@ const commandFlags = {
     "since",
     "provider",
     "model",
+    "reasoningEffort",
   ]),
-  doctor: new Set(["provider", "model"]),
+  doctor: new Set(["provider", "model", "reasoningEffort"]),
   "clean-locks": new Set<string>(),
 } satisfies Record<string, Set<string>>;
 
@@ -189,6 +200,7 @@ const valueFlagNames = new Set([
   "source",
   "provider",
   "model",
+  "reasoning-effort",
   "output",
   "status",
   "severity",
@@ -360,6 +372,7 @@ Flags:
   --jobs <n>        default: 10
   --provider <name>
   --model <name>
+  --reasoning-effort <none|minimal|low|medium|high|xhigh>
   --dry-run
   --json
   -q, --quiet
@@ -433,6 +446,7 @@ Flags:
   --finding <id>
   --provider <name>
   --model <name>
+  --reasoning-effort <none|minimal|low|medium|high|xhigh>
   --dry-run
   --json
 `);
@@ -460,6 +474,7 @@ Flags:
   --source <heuristic|auto|agent>
   --provider <name>
   --model <name>
+  --reasoning-effort <none|minimal|low|medium|high|xhigh>
   --dry-run
   --json
 `);
@@ -484,6 +499,7 @@ Flags:
   --since <ref>
   --provider <name>
   --model <name>
+  --reasoning-effort <none|minimal|low|medium|high|xhigh>
   --json
 `);
     return;
@@ -508,6 +524,7 @@ Usage:
 Flags:
   --provider <name>
   --model <name>
+  --reasoning-effort <none|minimal|low|medium|high|xhigh>
   --json
 `);
     return;

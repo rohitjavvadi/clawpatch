@@ -206,7 +206,7 @@ Review feature slices and persist findings.
 Usage:
 
 ```bash
-clawpatch review [--feature <id>] [--kind <kind>] [--limit <n>] [--dry-run] [--provider <name>] [--model <name>] [--resume <runId>]
+clawpatch review [--feature <id>] [--kind <kind>] [--limit <n>] [--dry-run] [--provider <name>] [--model <name>] [--reasoning-effort <level>] [--resume <runId>]
 ```
 
 Behavior:
@@ -252,7 +252,7 @@ Apply repairs for selected findings.
 Usage:
 
 ```bash
-clawpatch fix --finding <id> [--finding <id> ...] [--dry-run] [--yes] [--provider <name>] [--model <name>]
+clawpatch fix --finding <id> [--finding <id> ...] [--dry-run] [--yes] [--provider <name>] [--model <name>] [--reasoning-effort <level>]
 clawpatch fix --feature <id> [--severity high] [--dry-run] [--yes]
 ```
 
@@ -282,7 +282,7 @@ Verify findings or patch attempts.
 Usage:
 
 ```bash
-clawpatch revalidate [--finding <id>] [--patch <id>] [--feature <id>] [--provider <name>] [--model <name>]
+clawpatch revalidate [--finding <id>] [--patch <id>] [--feature <id>] [--provider <name>] [--model <name>] [--reasoning-effort <level>]
 ```
 
 Behavior:
@@ -447,6 +447,7 @@ Env:
 - `CLAWPATCH_STATE_DIR`
 - `CLAWPATCH_PROVIDER`
 - `CLAWPATCH_MODEL`
+- `CLAWPATCH_REASONING_EFFORT`
 - provider-specific exact env names, checked by provider adapters
 
 Secrets:

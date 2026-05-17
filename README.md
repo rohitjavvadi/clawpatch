@@ -132,6 +132,7 @@ Useful flags:
 - `--severity <severity>`
 - `--provider <name>`
 - `--model <name>`
+- `--reasoning-effort <none|minimal|low|medium|high|xhigh>`
 - `--output <path>` / `-o <path>`
 - `--dry-run`
 - `--force`

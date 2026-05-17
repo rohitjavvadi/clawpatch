@@ -37,6 +37,17 @@ clawpatch review --model <model>
 CLAWPATCH_MODEL=<model> clawpatch review
 ```
 
+Reasoning effort selection:
+
+```bash
+clawpatch review --model gpt-5.5 --reasoning-effort xhigh
+CLAWPATCH_REASONING_EFFORT=xhigh clawpatch review
+```
+
+When `reasoningEffort` is unset, Clawpatch does not pass a reasoning override
+and Codex uses its own configured default. Explicit values are passed to Codex
+as `model_reasoning_effort`.
+
 ## OpenCode
 
 The `opencode` provider shells out to the local [OpenCode CLI](https://opencode.ai/docs/cli/).

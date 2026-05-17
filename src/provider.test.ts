@@ -5,6 +5,7 @@ import { __testing, extractJson, providerByName } from "./provider.js";
 // eslint-disable-next-line no-underscore-dangle
 const { acpxFailureMessage, extractAcpxJson, extractOpencodeJson, parseAcpxAgent, parseCodexJson } =
   __testing;
+const { addCodexModelArgs } = __testing;
 
 function updateEnvelope(update: object): string {
   return JSON.stringify({
@@ -92,6 +93,24 @@ describe("parseCodexJson", () => {
 
   it("throws malformed-output when codex output contains no JSON object", () => {
     expectMalformed(() => parseCodexJson("not json"), /codex provider produced unparseable JSON/u);
+  });
+});
+
+describe("Codex provider args", () => {
+  it("passes model and reasoning effort through explicit CLI config", () => {
+    const args = ["exec"];
+
+    addCodexModelArgs(args, { model: "gpt-5.5", reasoningEffort: "xhigh" });
+
+    expect(args).toEqual(["exec", "--model", "gpt-5.5", "-c", 'model_reasoning_effort="xhigh"']);
+  });
+
+  it("leaves Codex defaults untouched when unset", () => {
+    const args = ["exec"];
+
+    addCodexModelArgs(args, { model: null, reasoningEffort: null });
+
+    expect(args).toEqual(["exec"]);
   });
 });
 

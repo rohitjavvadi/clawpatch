@@ -32,7 +32,8 @@ Default shape:
   ],
   "provider": {
     "name": "codex",
-    "model": null
+    "model": null,
+    "reasoningEffort": null
   },
   "commands": {
     "typecheck": null,
@@ -59,6 +60,7 @@ Environment overrides:
 - `CLAWPATCH_STATE_DIR`
 - `CLAWPATCH_PROVIDER`
 - `CLAWPATCH_MODEL`
+- `CLAWPATCH_REASONING_EFFORT`
 
 `git.commit` and `git.openPr` are reserved config fields. The current CLI does
 not commit or open PRs.

@@ -41,6 +41,8 @@ import {
   RunRecord,
   ReviewOutput,
   deriveFindingTriage,
+  reasoningEffortSchema,
+  reasoningEfforts,
 } from "./types.js";
 
 export type AppContext = {
@@ -113,7 +115,7 @@ export async function mapCommand(
   const result = await mapWithSource(loaded.root, loaded.project, existing, heuristic, {
     source,
     provider,
-    model: config.provider.model,
+    providerOptions: providerOptions(config),
     onProgress: (event, fields) => {
       emitMapProgress(context, event, fields);
     },
@@ -488,7 +490,7 @@ async function reviewFeature(options: ReviewFeatureOptions): Promise<{ findingId
     );
     locked = lockedFeature;
     const prompt = await buildReviewPrompt(loaded.root, loaded.project, lockedFeature, config);
-    const output = await provider.review(loaded.root, prompt, config.provider.model);
+    const output = await provider.review(loaded.root, prompt, providerOptions(config));
     const records = output.findings
       .slice(0, config.review.maxFindingsPerFeature)
       .map((finding) => findingFromOutput(finding, lockedFeature.featureId, currentRunId));
@@ -514,6 +516,7 @@ async function reviewFeature(options: ReviewFeatureOptions): Promise<{ findingId
           summary: `${records.length} finding(s)`,
           provider: provider.name,
           model: config.provider.model,
+          reasoningEffort: config.provider.reasoningEffort,
           createdAt: nowIso(),
         },
       ],
@@ -546,6 +549,7 @@ async function reviewFeature(options: ReviewFeatureOptions): Promise<{ findingId
               summary: message,
               provider: provider.name,
               model: config.provider.model,
+              reasoningEffort: config.provider.reasoningEffort,
               createdAt: nowIso(),
             },
           ],
@@ -595,7 +599,7 @@ export async function revalidateCommand(
         title: finding.title,
       });
       const prompt = await buildRevalidatePrompt(loaded.root, JSON.stringify(finding, null, 2));
-      const output = await provider.revalidate(loaded.root, prompt, config.provider.model);
+      const output = await provider.revalidate(loaded.root, prompt, providerOptions(config));
       const updated = appendFindingHistory(
         {
           ...finding,
@@ -734,7 +738,7 @@ export async function fixCommand(
   const beforeChanged = (await sourceChangedPaths(loaded.root, loaded.paths.stateDir)) ?? new Set();
   let plan: FixPlanOutput;
   try {
-    plan = await provider.fix(loaded.root, prompt, config.provider.model);
+    plan = await provider.fix(loaded.root, prompt, providerOptions(config));
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     await writePatchAttempt(loaded.paths, {
@@ -744,6 +748,7 @@ export async function fixCommand(
       provider: {
         name: provider.name,
         model: config.provider.model,
+        reasoningEffort: config.provider.reasoningEffort,
         requestId: null,
         startedAt,
         finishedAt: nowIso(),
@@ -777,6 +782,7 @@ export async function fixCommand(
     provider: {
       name: provider.name,
       model: config.provider.model,
+      reasoningEffort: config.provider.reasoningEffort,
       requestId: null,
       startedAt,
       finishedAt: nowIso(),
@@ -845,6 +851,11 @@ export async function doctorCommand(
     process.env["CLAWPATCH_MODEL"] ??
     loaded?.config.provider.model ??
     null;
+  const reasoningEffort =
+    parseReasoningEffort(stringFlag(flags, "reasoningEffort")) ??
+    parseReasoningEffort(process.env["CLAWPATCH_REASONING_EFFORT"]) ??
+    loaded?.config.provider.reasoningEffort ??
+    null;
   const provider = providerByName(providerName);
   const providerVersion = await provider.check(root);
   return {
@@ -852,6 +863,7 @@ export async function doctorCommand(
     state: loaded === null ? "missing" : "ok",
     provider: providerName,
     model,
+    reasoningEffort,
     providerVersion,
     secrets: "redacted",
   };
@@ -894,14 +906,38 @@ function applyProviderFlags(
 ) {
   const providerName = stringFlag(flags, "provider");
   const model = stringFlag(flags, "model");
+  const reasoningEffort = parseReasoningEffort(stringFlag(flags, "reasoningEffort"));
   return {
     ...config,
     provider: {
       ...config.provider,
       name: providerName ?? config.provider.name,
       model: model ?? config.provider.model,
+      reasoningEffort: reasoningEffort ?? config.provider.reasoningEffort,
     },
   };
+}
+
+function providerOptions(config: ReturnType<typeof applyProviderFlags>) {
+  return {
+    model: config.provider.model,
+    reasoningEffort: config.provider.reasoningEffort,
+  };
+}
+
+function parseReasoningEffort(value: string | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = reasoningEffortSchema.safeParse(value);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  throw new ClawpatchError(
+    `invalid reasoning effort: ${value}; expected ${reasoningEfforts.join(", ")}`,
+    2,
+    "invalid-usage",
+  );
 }
 
 function parseMapSource(flags: Record<string, string | boolean>): "heuristic" | "auto" | "agent" {

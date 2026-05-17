@@ -1,5 +1,12 @@
 import { join, resolve } from "node:path";
-import { ClawpatchConfig, configSchema, ProjectCommands } from "./types.js";
+import {
+  ClawpatchConfig,
+  configSchema,
+  ProjectCommands,
+  reasoningEffortSchema,
+  reasoningEfforts,
+} from "./types.js";
+import { ClawpatchError } from "./errors.js";
 import { pathExists, readJson } from "./fs.js";
 
 export type GlobalOptions = {
@@ -39,6 +46,7 @@ export function defaultConfig(): ClawpatchConfig {
     provider: {
       name: "codex",
       model: null,
+      reasoningEffort: null,
     },
     commands: defaultCommands,
     review: {
@@ -65,12 +73,30 @@ export async function loadConfig(root: string, options: GlobalOptions): Promise<
       ...base.provider,
       name: process.env["CLAWPATCH_PROVIDER"] ?? base.provider.name,
       model: process.env["CLAWPATCH_MODEL"] ?? base.provider.model,
+      reasoningEffort:
+        parseReasoningEffort(process.env["CLAWPATCH_REASONING_EFFORT"]) ??
+        base.provider.reasoningEffort,
     },
   };
 }
 
 export function resolveStateDir(root: string, config: ClawpatchConfig): string {
   return resolve(root, config.stateDir);
+}
+
+function parseReasoningEffort(value: string | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = reasoningEffortSchema.safeParse(value);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  throw new ClawpatchError(
+    `invalid reasoning effort: ${value}; expected ${reasoningEfforts.join(", ")}`,
+    2,
+    "invalid-usage",
+  );
 }
 
 async function discoverConfigPath(root: string, options: GlobalOptions): Promise<string | null> {

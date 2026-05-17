@@ -1,7 +1,7 @@
 import { isAbsolute, join } from "node:path";
 import { buildAgentMapPrompt } from "./prompt.js";
 import { ClawpatchError } from "./errors.js";
-import { Provider } from "./provider.js";
+import { Provider, ProviderOptions } from "./provider.js";
 import { AgentMapOutput, FeatureRecord, ProjectRecord } from "./types.js";
 import { mapFeatureSeeds, MapResult } from "./mapper.js";
 import { FeatureSeed, SeedFileRef, SeedTestRef } from "./mappers/types.js";
@@ -23,7 +23,7 @@ export type AgentMapResult = MapResult & {
 type AgentMapOptions = {
   source: AgentMapMode;
   provider: Provider | null;
-  model: string | null;
+  providerOptions: ProviderOptions;
   onProgress?: (event: string, fields: Record<string, string | number | boolean>) => void;
 };
 
@@ -118,9 +118,16 @@ export async function mapWithSource(
   const agentStarted = Date.now();
   options.onProgress?.("agent-start", {
     provider: options.provider.name,
-    model: options.model ?? "default",
+    model: options.providerOptions.model ?? "default",
   });
-  const agent = await agentMap(root, project, existing, options.provider, options.model, inventory);
+  const agent = await agentMap(
+    root,
+    project,
+    existing,
+    options.provider,
+    options.providerOptions,
+    inventory,
+  );
   options.onProgress?.("agent-done", {
     features: agent.features.length,
     elapsed: `${Math.round((Date.now() - agentStarted) / 1000)}s`,
@@ -169,7 +176,7 @@ async function agentMap(
   project: ProjectRecord,
   existing: FeatureRecord[],
   provider: Provider,
-  model: string | null,
+  providerOptions: ProviderOptions,
   inventory: RepoInventory,
 ): Promise<MapResult> {
   const prompt = buildAgentMapPrompt(project, {
@@ -180,7 +187,7 @@ async function agentMap(
     files: inventory.fileSamples,
     summary: inventorySummary(inventory),
   });
-  const output = await provider.map(root, prompt, model);
+  const output = await provider.map(root, prompt, providerOptions);
   const seeds = await Promise.all(
     output.features.map((feature) => toSeed(root, feature, inventory.allFiles)),
   );
