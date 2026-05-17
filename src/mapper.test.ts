@@ -2418,6 +2418,969 @@ describe("mapFeatures", () => {
     ]);
   });
 
+  it("maps Kotlin Android semantic roles from framework evidence", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-role-map-");
+    await writeFixture(root, "settings.gradle.kts", 'pluginManagement {}\ninclude(":app")\n');
+    await writeFixture(
+      root,
+      "build.gradle.kts",
+      'plugins { id("com.android.application").version("1.0").apply(false) }\n',
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/api/RootController.kt",
+      [
+        "package com.example.api",
+        "",
+        "import org.springframework.web.bind.annotation.GetMapping",
+        "import org.springframework.web.bind.annotation.RestController",
+        "",
+        "@RestController",
+        "class RootController {",
+        '  @GetMapping("/root")',
+        '  fun root(): String = "ok"',
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "app/build.gradle.kts",
+      "plugins { alias(libs.plugins.android.application) }\n",
+    );
+    await writeFixture(
+      root,
+      "app/src/main/kotlin/com/example/ui/MainActivity.kt",
+      [
+        "package com.example.ui",
+        "",
+        "import androidx.activity.ComponentActivity",
+        "import androidx.compose.runtime.Composable",
+        "import androidx.hilt.navigation.compose.hiltViewModel",
+        "",
+        "class MainActivity : ComponentActivity()",
+        "",
+        "@Composable",
+        "fun HomeScreen() { hiltViewModel<MainViewModel>() }",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "app/src/main/kotlin/com/example/ui/ProfileFragment.kt",
+      [
+        "package com.example.ui",
+        "",
+        "import dagger.hilt.android.AndroidEntryPoint",
+        "",
+        "@AndroidEntryPoint",
+        "class ProfileFragment : BaseFragment()",
+        "",
+        "open class BaseFragment",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "app/src/main/kotlin/com/example/ui/SettingsActivity.kt",
+      "package com.example.ui\nclass SettingsActivity : androidx.activity.ComponentActivity()\n",
+    );
+    await writeFixture(
+      root,
+      "app/src/main/kotlin/com/example/ui/MainViewModel.kt",
+      [
+        "package com.example.ui",
+        "",
+        "import androidx.lifecycle.*",
+        "",
+        "class MainViewModel : ViewModel()",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "app/src/main/kotlin/com/example/data/AppDatabase.kt",
+      [
+        "package com.example.data",
+        "",
+        "import androidx.room.Database",
+        "import androidx.room.RoomDatabase",
+        "",
+        "@Database(entities = [], version = 1)",
+        "abstract class AppDatabase : RoomDatabase()",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "app/src/main/kotlin/com/example/data/UserRepository.kt",
+      [
+        "package com.example.data",
+        "",
+        "import javax.inject.Inject",
+        "",
+        "class UserRepository @Inject constructor()",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "app/src/main/kotlin/com/example/network/ApiClient.kt",
+      [
+        "package com.example.network",
+        "",
+        "import retrofit2.Retrofit",
+        "",
+        "class ApiClient(private val retrofit: Retrofit)",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "app/src/main/kotlin/com/example/di/AppGraph.kt",
+      [
+        "package com.example.di",
+        "",
+        "import dev.zacsweers.metro.BindingContainer",
+        "import dev.zacsweers.metro.DependencyGraph",
+        "import dev.zacsweers.metro.Provides",
+        "",
+        "@DependencyGraph",
+        "interface AppGraph",
+        "",
+        "@BindingContainer",
+        "object AppBindings {",
+        '  @Provides fun provideName(): String = "app"',
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "app/src/main/kotlin/com/example/domain/UseCase.kt",
+      "package com.example.domain\nclass UseCase\n",
+    );
+    await writeFixture(
+      root,
+      "app/src/test/kotlin/com/example/ui/MainActivityTest.kt",
+      "package com.example.ui\nclass MainActivityTest\n",
+    );
+    await writeFixture(
+      root,
+      "app/build/generated/source/kapt/debug/com/example/Ignored.kt",
+      "package com.example\nclass Ignored\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const titles = result.features.map((feature) => feature.title);
+    const gradleModule = result.features.find((feature) => feature.title === "Gradle module app");
+    const ui = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin Android role UI entrypoint "),
+    );
+    const viewModel = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin Android role view model "),
+    );
+    const data = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin Android role data boundary "),
+    );
+    const client = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin Android role external client "),
+    );
+    const di = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin Android role dependency injection "),
+    );
+    const rootModule = result.features.find((feature) => feature.title === "Gradle module .");
+    const rootWeb = result.features.find(
+      (feature) =>
+        feature.source === "kotlin-server-role-web-entrypoint" &&
+        feature.ownedFiles.some(
+          (file) => file.path === "src/main/kotlin/com/example/api/RootController.kt",
+        ),
+    );
+
+    expect(project.detected.languages).toContain("kotlin");
+    expect(project.detected.packageManagers).toContain("gradle");
+    expect(titles).toContain("Gradle module app");
+    expect(rootModule?.tags).not.toContain("android");
+    expect(rootWeb?.source).toBe("kotlin-server-role-web-entrypoint");
+    expect(gradleModule?.tags).toEqual(expect.arrayContaining(["gradle", "kotlin", "android"]));
+    expect(ui?.source).toBe("kotlin-android-role-ui-entrypoint");
+    expect(ui?.kind).toBe("ui-flow");
+    expect(ui?.confidence).toBe("high");
+    expect(ui?.ownedFiles.map((file) => file.path)).toContain(
+      "app/src/main/kotlin/com/example/ui/MainActivity.kt",
+    );
+    expect(ui?.ownedFiles.map((file) => file.path)).toContain(
+      "app/src/main/kotlin/com/example/ui/ProfileFragment.kt",
+    );
+    expect(ui?.ownedFiles.map((file) => file.path)).toContain(
+      "app/src/main/kotlin/com/example/ui/SettingsActivity.kt",
+    );
+    expect(ui?.tests).toEqual([
+      { path: "app/src/test/kotlin/com/example/ui/MainActivityTest.kt", command: null },
+    ]);
+    expect(viewModel?.source).toBe("kotlin-android-role-view-model");
+    expect(viewModel?.ownedFiles.map((file) => file.path)).not.toContain(
+      "app/src/main/kotlin/com/example/ui/MainActivity.kt",
+    );
+    expect(data?.trustBoundaries).toEqual(expect.arrayContaining(["database", "serialization"]));
+    expect(data?.ownedFiles.map((file) => file.path)).toContain(
+      "app/src/main/kotlin/com/example/data/UserRepository.kt",
+    );
+    expect(client?.trustBoundaries).toEqual(
+      expect.arrayContaining(["network", "external-api", "serialization"]),
+    );
+    expect(di?.source).toBe("kotlin-android-role-dependency-injection");
+    expect(di?.ownedFiles.map((file) => file.path)).toContain(
+      "app/src/main/kotlin/com/example/di/AppGraph.kt",
+    );
+    expect(
+      result.features.flatMap((feature) => feature.ownedFiles.map((file) => file.path)),
+    ).not.toContain("app/build/generated/source/kapt/debug/com/example/Ignored.kt");
+  });
+
+  it("maps server-side Kotlin roles and path fallback evidence", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-server-role-map-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/api/OrderController.kt",
+      [
+        "package com.example.api",
+        "",
+        "import org.springframework.web.bind.annotation.GetMapping",
+        "import org.springframework.web.bind.annotation.RestController",
+        "",
+        "@RestController",
+        "class OrderController {",
+        '  @GetMapping("/orders")',
+        '  fun list(): String = "ok"',
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/api/QualifiedController.kt",
+      [
+        "package com.example.api",
+        "",
+        "@org.springframework.web.bind.annotation.RestController",
+        "class QualifiedController",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/app/BillingService.kt",
+      [
+        "package com.example.app",
+        "",
+        "import jakarta.inject.Singleton",
+        "",
+        "@Singleton",
+        "class BillingService",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/db/OrderRepository.kt",
+      [
+        "package com.example.db",
+        "",
+        "import org.springframework.data.repository.CrudRepository",
+        "",
+        "interface OrderRepository : CrudRepository<Order, String>",
+        "class Order",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/client/RemoteClient.kt",
+      [
+        "package com.example.client",
+        "",
+        "import okhttp3.OkHttpClient",
+        "",
+        "class RemoteClient(private val client: OkHttpClient)",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/client/GitHubApi.kt",
+      [
+        "package com.example.client",
+        "",
+        "import retrofit2.http.GET",
+        "",
+        "interface GitHubApi {",
+        '  @GET("/users")',
+        "  fun users(): String",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/network/FallbackClient.kt",
+      "package com.example.network\nclass FallbackClient\n",
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/network/PaymentClient.kt",
+      "package com.example.network\ninterface PaymentClient\n",
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/config/AppConfig.kt",
+      [
+        "package com.example.config",
+        "",
+        "import org.springframework.context.annotation.Bean",
+        "import org.springframework.context.annotation.Configuration",
+        "",
+        "@Configuration",
+        "class AppConfig {",
+        '  @Bean fun name(): String = "orders"',
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/test/kotlin/com/example/api/OrderControllerTest.kt",
+      "package com.example.api\nclass OrderControllerTest\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const web = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin server role web entrypoint "),
+    );
+    const service = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin server role application service "),
+    );
+    const persistence = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin server role persistence boundary "),
+    );
+    const clientFeatures = result.features.filter((feature) =>
+      feature.title.startsWith("Kotlin server role external client "),
+    );
+    const configuration = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin server role configuration "),
+    );
+
+    expect(web?.source).toBe("kotlin-server-role-web-entrypoint");
+    expect(web?.ownedFiles.map((file) => file.path)).not.toContain(
+      "src/main/kotlin/com/example/client/GitHubApi.kt",
+    );
+    expect(web?.ownedFiles.map((file) => file.path)).toContain(
+      "src/main/kotlin/com/example/api/QualifiedController.kt",
+    );
+    expect(web?.tests).toEqual([
+      { path: "src/test/kotlin/com/example/api/OrderControllerTest.kt", command: null },
+    ]);
+    expect(service?.source).toBe("kotlin-server-role-application-service");
+    expect(persistence?.source).toBe("kotlin-server-role-persistence-boundary");
+    expect(configuration?.source).toBe("kotlin-server-role-configuration");
+    expect(configuration?.ownedFiles.map((file) => file.path)).toContain(
+      "src/main/kotlin/com/example/config/AppConfig.kt",
+    );
+    const clientFiles = clientFeatures.flatMap((feature) =>
+      feature.ownedFiles.map((file) => file.path),
+    );
+    expect(clientFeatures).toHaveLength(1);
+    expect(clientFeatures[0]?.confidence).toBe("high");
+    expect(clientFiles).toEqual(
+      expect.arrayContaining([
+        "src/main/kotlin/com/example/client/GitHubApi.kt",
+        "src/main/kotlin/com/example/client/RemoteClient.kt",
+        "src/main/kotlin/com/example/network/FallbackClient.kt",
+        "src/main/kotlin/com/example/network/PaymentClient.kt",
+      ]),
+    );
+  });
+
+  it("keeps Kotlin feature IDs stable when confidence changes", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-role-id-stability-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/network/FallbackClient.kt",
+      "package com.example.network\nclass FallbackClient\n",
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/network/BackupClient.kt",
+      "package com.example.network\nclass BackupClient\n",
+    );
+
+    const project = await detectProject(root);
+    const first = await mapFeatures(root, project, []);
+    const fallbackBefore = first.features.find(
+      (feature) =>
+        feature.source === "kotlin-server-role-external-client" &&
+        feature.ownedFiles.some(
+          (file) => file.path === "src/main/kotlin/com/example/network/FallbackClient.kt",
+        ),
+    );
+
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/network/FallbackClient.kt",
+      [
+        "package com.example.network",
+        "",
+        "import okhttp3.OkHttpClient",
+        "",
+        "class FallbackClient(private val client: OkHttpClient)",
+        "",
+      ].join("\n"),
+    );
+
+    const second = await mapFeatures(root, project, first.features);
+    const fallbackAfter = second.features.find(
+      (feature) =>
+        feature.source === "kotlin-server-role-external-client" &&
+        feature.ownedFiles.some(
+          (file) => file.path === "src/main/kotlin/com/example/network/FallbackClient.kt",
+        ),
+    );
+
+    expect(fallbackBefore?.confidence).toBe("medium");
+    expect(fallbackAfter?.confidence).toBe("high");
+    expect(fallbackAfter?.featureId).toBe(fallbackBefore?.featureId);
+    expect(fallbackAfter?.ownedFiles.map((file) => file.path).toSorted()).toEqual([
+      "src/main/kotlin/com/example/network/BackupClient.kt",
+      "src/main/kotlin/com/example/network/FallbackClient.kt",
+    ]);
+  });
+
+  it("does not infer Android roles from non-Android Gradle module paths", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-path-leak-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(
+      root,
+      "apps/android/build.gradle.kts",
+      [
+        'plugins { id("org.jetbrains.kotlin.jvm") }',
+        "plugins {",
+        "  alias(libs.plugins.android.application)",
+        "    .apply(false)",
+        "}",
+        '// id("com.android.application")',
+        '/* android { namespace = "example" } */',
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "apps/android/src/main/kotlin/com/example/di/Injector.kt",
+      "package com.example.di\nclass Injector\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.some((feature) => feature.source.startsWith("kotlin-android-role-")),
+    ).toBe(false);
+    expect(
+      result.features.find((feature) => feature.title === "Gradle module apps/android")?.tags,
+    ).not.toContain("android");
+  });
+
+  it("detects legacy Android Gradle plugin application syntax", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-legacy-gradle-map-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle", 'apply plugin: "com.android.library"\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/ui/MainActivity.kt",
+      [
+        "package com.example.ui",
+        "",
+        "import androidx.activity.ComponentActivity",
+        "",
+        "class MainActivity : ComponentActivity()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(result.features.find((feature) => feature.title === "Gradle module .")?.tags).toContain(
+      "android",
+    );
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-android-role-ui-entrypoint" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/kotlin/com/example/ui/MainActivity.kt",
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not treat non-entrypoint Android framework imports as UI roles", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-non-ui-import-");
+    await writeFixture(root, "settings.gradle.kts", 'pluginManagement {}\ninclude(":app")\n');
+    await writeFixture(root, "app/build.gradle.kts", 'plugins { id("com.android.library") }\n');
+    await writeFixture(
+      root,
+      "app/src/main/kotlin/com/example/alerts/Notifier.kt",
+      [
+        "package com.example.alerts",
+        "",
+        "import android.app.Notification",
+        "import android.app.PendingIntent",
+        "",
+        "class Notifier(private val notification: Notification, private val intent: PendingIntent)",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-android-role-ui-entrypoint" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "app/src/main/kotlin/com/example/alerts/Notifier.kt",
+          ),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not treat project-local Android supertype names as framework roles", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-local-supertype-");
+    await writeFixture(root, "settings.gradle.kts", 'pluginManagement {}\ninclude(":app")\n');
+    await writeFixture(root, "app/build.gradle.kts", 'plugins { id("com.android.library") }\n');
+    await writeFixture(
+      root,
+      "app/src/main/kotlin/com/example/domain/Service.kt",
+      "package com.example.domain\nopen class Service\n",
+    );
+    await writeFixture(
+      root,
+      "app/src/main/kotlin/com/example/domain/Billing.kt",
+      "package com.example.domain\nclass Billing : Service()\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-android-role-ui-entrypoint" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "app/src/main/kotlin/com/example/domain/Billing.kt",
+          ),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not treat Compose runtime state imports as UI roles", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-compose-state-");
+    await writeFixture(root, "settings.gradle.kts", 'pluginManagement {}\ninclude(":app")\n');
+    await writeFixture(root, "app/build.gradle.kts", 'plugins { id("com.android.library") }\n');
+    await writeFixture(
+      root,
+      "app/src/main/kotlin/com/example/state/CounterState.kt",
+      [
+        "package com.example.state",
+        "",
+        "import androidx.compose.runtime.mutableStateOf",
+        "",
+        "class CounterState {",
+        "  val count = mutableStateOf(0)",
+        "}",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-android-role-ui-entrypoint" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "app/src/main/kotlin/com/example/state/CounterState.kt",
+          ),
+      ),
+    ).toBe(false);
+  });
+
+  it("maps Kotlin role evidence from wildcard imports", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-wildcard-imports-");
+    await writeFixture(root, "settings.gradle.kts", 'pluginManagement {}\ninclude(":app")\n');
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/client/RemoteClient.kt",
+      [
+        "package com.example.client",
+        "",
+        "import retrofit2.*",
+        "",
+        "class RemoteClient(private val retrofit: Retrofit)",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(root, "app/build.gradle.kts", 'plugins { id("com.android.application") }\n');
+    await writeFixture(root, "app/src/main/AndroidManifest.xml", "<manifest />\n");
+    await writeFixture(
+      root,
+      "app/src/main/kotlin/com/example/bootstrap/AppModule.kt",
+      [
+        "package com.example.bootstrap",
+        "",
+        "import org.koin.dsl.*",
+        "",
+        'fun appModule() = module { single { "value" } }',
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const client = result.features.find(
+      (feature) =>
+        feature.source === "kotlin-server-role-external-client" &&
+        feature.ownedFiles.some(
+          (file) => file.path === "src/main/kotlin/com/example/client/RemoteClient.kt",
+        ),
+    );
+    const di = result.features.find(
+      (feature) =>
+        feature.source === "kotlin-android-role-dependency-injection" &&
+        feature.ownedFiles.some(
+          (file) => file.path === "app/src/main/kotlin/com/example/bootstrap/AppModule.kt",
+        ),
+    );
+
+    expect(client?.ownedFiles[0]?.reason).toContain("retrofit2.*");
+    expect(di?.ownedFiles[0]?.reason).toContain("org.koin.dsl.*");
+  });
+
+  it("maps server-side Kotlin declaration role evidence", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-declaration-role-map-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/ports/PaymentPort.kt",
+      "package com.example.ports\nfun interface PaymentPort { fun pay() }\n",
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/domain/Job.kt",
+      "package com.example.domain\nclass Job\n",
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/jobs/JobFactory.kt",
+      [
+        "package com.example.jobs",
+        "",
+        "import kotlin.time.*",
+        "import org.scheduler.*",
+        "",
+        "class JobFactory : LocalBase(), JobFactoryBase<Job>() {",
+        "  fun buildJob(): Job = TODO()",
+        "  fun local(): LocalBase = TODO()",
+        '  fun label(): String = "job"',
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/jobs/LocalBase.kt",
+      "package com.example.jobs\nopen class LocalBase\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const extension = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin server role extension boundary "),
+    );
+    const framework = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin server role framework component "),
+    );
+
+    expect(extension?.source).toBe("kotlin-server-role-extension-boundary");
+    expect(extension?.confidence).toBe("medium");
+    expect(extension?.ownedFiles.map((file) => file.path)).toContain(
+      "src/main/kotlin/com/example/ports/PaymentPort.kt",
+    );
+    expect(
+      extension?.ownedFiles.find(
+        (file) => file.path === "src/main/kotlin/com/example/ports/PaymentPort.kt",
+      )?.reason,
+    ).toContain("interface declaration PaymentPort");
+    expect(framework?.source).toBe("kotlin-server-role-framework-component");
+    expect(framework?.ownedFiles.map((file) => file.path)).toContain(
+      "src/main/kotlin/com/example/jobs/JobFactory.kt",
+    );
+    expect(framework?.ownedFiles[0]?.reason).toContain("external type org.scheduler.");
+    expect(framework?.ownedFiles[0]?.reason).not.toContain("org.scheduler.LocalBase");
+    expect(framework?.ownedFiles[0]?.reason).not.toContain("org.scheduler.String");
+  });
+
+  it("does not treat Kotlin stdlib return types as framework components", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-stdlib-type-map-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/util/Timeouts.kt",
+      [
+        "package com.example.util",
+        "",
+        "import kotlin.time.Duration",
+        "",
+        "fun timeout(): Duration = Duration.ZERO",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-server-role-framework-component" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/kotlin/com/example/util/Timeouts.kt",
+          ),
+      ),
+    ).toBe(false);
+  });
+
+  it("filters mixed Java/Kotlin module types from Kotlin framework roles", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-java-local-type-map-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/java/com/example/framework/BaseHandler.java",
+      "package com.example.framework; public class BaseHandler {}\n",
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/api/Handler.kt",
+      [
+        "package com.example.api",
+        "",
+        "import com.example.framework.BaseHandler",
+        "",
+        "class Handler : BaseHandler()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-server-role-framework-component" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/kotlin/com/example/api/Handler.kt",
+          ),
+      ),
+    ).toBe(false);
+  });
+
+  it("maps Kotlin supertypes with constructor arguments", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-supertype-args-map-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/jobs/Handler.kt",
+      [
+        "package com.example.jobs",
+        "",
+        "import org.framework.FrameworkBase",
+        "",
+        "class Handler(callback: () -> Unit) : FrameworkBase(dep = dep, config = config)",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/jobs/InjectedHandler.kt",
+      [
+        "package com.example.jobs",
+        "",
+        "import jakarta.inject.Inject",
+        "import org.framework.FrameworkBase",
+        "",
+        "class InjectedHandler @Inject constructor(dep: Any) : FrameworkBase(dep)",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/jobs/InternalHandler.kt",
+      [
+        "package com.example.jobs",
+        "",
+        "import org.framework.FrameworkBase",
+        "",
+        "class InternalHandler internal constructor(dep: Any) : FrameworkBase(dep)",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/jobs/QualifiedHandler.kt",
+      [
+        "package com.example.jobs",
+        "",
+        "class QualifiedHandler : org.framework.FrameworkBase()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const framework = result.features.find(
+      (feature) =>
+        feature.source === "kotlin-server-role-framework-component" &&
+        feature.ownedFiles.some(
+          (file) => file.path === "src/main/kotlin/com/example/jobs/Handler.kt",
+        ),
+    );
+
+    expect(framework?.ownedFiles[0]?.reason).toContain("external type org.framework.FrameworkBase");
+    expect(framework?.ownedFiles.map((file) => file.path)).toContain(
+      "src/main/kotlin/com/example/jobs/InjectedHandler.kt",
+    );
+    expect(framework?.ownedFiles.map((file) => file.path)).toContain(
+      "src/main/kotlin/com/example/jobs/InternalHandler.kt",
+    );
+    expect(framework?.ownedFiles.map((file) => file.path)).toContain(
+      "src/main/kotlin/com/example/jobs/QualifiedHandler.kt",
+    );
+  });
+
+  it("maps Kotlin Spring components as application services", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-spring-component-map-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/app/BillingComponent.kt",
+      [
+        "package com.example.app",
+        "",
+        "import org.springframework.stereotype.Component",
+        "",
+        "@Component",
+        "class BillingComponent",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const service = result.features.find(
+      (feature) =>
+        feature.source === "kotlin-server-role-application-service" &&
+        feature.ownedFiles.some(
+          (file) => file.path === "src/main/kotlin/com/example/app/BillingComponent.kt",
+        ),
+    );
+
+    expect(service?.ownedFiles[0]?.reason).toContain("service annotation @Component");
+  });
+
+  it("does not treat qualified Kotlin annotations as type imports", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-qualified-annotation-type-map-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/app/Billing.kt",
+      [
+        "package com.example.app",
+        "",
+        "@org.springframework.stereotype.Service",
+        "class Billing : Service",
+        "interface Service",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-server-role-framework-component" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/kotlin/com/example/app/Billing.kt",
+          ),
+      ),
+    ).toBe(false);
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-server-role-application-service" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/kotlin/com/example/app/Billing.kt",
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not treat project-local nested Kotlin types as external frameworks", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-local-nested-type-map-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/Outer.kt",
+      [
+        "package com.example",
+        "",
+        "class Outer { open class Base }",
+        "class Handler : Outer.Base()",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-server-role-framework-component" &&
+          feature.ownedFiles.some((file) => file.path === "src/main/kotlin/com/example/Outer.kt"),
+      ),
+    ).toBe(false);
+  });
+
   it("normalizes root Gradle source groups", async () => {
     const root = await fixtureRoot("clawpatch-root-gradle-map-");
     await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
@@ -2663,6 +3626,32 @@ describe("mapFeatures", () => {
     );
     await writeFixture(
       root,
+      "src/main/java/com/acme/ext/ServletFilter.java",
+      [
+        "package com.acme.ext;",
+        "",
+        "import jakarta.servlet.Filter;",
+        "",
+        "public class ServletFilter implements Filter {}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/java/com/acme/security/SslFactory.java",
+      [
+        "package com.acme.security;",
+        "",
+        "import javax.net.ssl.SSLContext;",
+        "",
+        "public class SslFactory {",
+        "  public SSLContext context() { return null; }",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
       "src/main/java/com/acme/local/LocalCommandAdapter.java",
       [
         "package com.acme.local;",
@@ -2715,10 +3704,14 @@ describe("mapFeatures", () => {
         "src/main/java/com/acme/ext/HelperFirstAdapter.java",
         "src/main/java/com/acme/ext/PluginAdapter.java",
         "src/main/java/com/acme/ext/RecordPlugin.java",
+        "src/main/java/com/acme/ext/ServletFilter.java",
         "src/main/java/com/acme/jobs/GenericJobFactory.java",
         "src/main/java/com/acme/jobs/JobFactory.java",
       ].toSorted(),
     );
+    expect(
+      bySource.get("jvm-role-framework-component")?.ownedFiles.map((file) => file.path),
+    ).not.toContain("src/main/java/com/acme/security/SslFactory.java");
     expect(
       bySource
         .get("jvm-role-extension-boundary")
@@ -2728,9 +3721,49 @@ describe("mapFeatures", () => {
       "src/main/java/com/acme/ext/HelperFirstAdapter.java",
       "src/main/java/com/acme/ext/PluginAdapter.java",
       "src/main/java/com/acme/ext/RecordPlugin.java",
+      "src/main/java/com/acme/ext/ServletFilter.java",
       "src/main/java/com/acme/local/LocalCommandAdapter.java",
       "src/main/java/com/google/myapp/GuavaAdapter.java",
     ]);
+  });
+
+  it("does not treat qualified Java annotations as type imports", async () => {
+    const root = await fixtureRoot("clawpatch-java-qualified-annotation-type-map-");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("java") }\n');
+    await writeFixture(
+      root,
+      "src/main/java/com/acme/app/Billing.java",
+      [
+        "package com.acme.app;",
+        "",
+        "@org.springframework.stereotype.Service",
+        "public class Billing implements Service {}",
+        "interface Service {}",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "jvm-role-framework-component" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/java/com/acme/app/Billing.java",
+          ),
+      ),
+    ).toBe(false);
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "jvm-role-application-service" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/java/com/acme/app/Billing.java",
+          ),
+      ),
+    ).toBe(true);
   });
 
   it("ignores vendored SwiftPM manifests during detection", async () => {
