@@ -34,6 +34,13 @@ type FastApiRoute = {
   methods: string[];
 };
 
+type DjangoRoute = {
+  filePath: string;
+  routePath: string;
+  symbol: string | null;
+  include: boolean;
+};
+
 type PyprojectInfo = {
   name: string | null;
   scripts: PythonScript[];
@@ -136,6 +143,10 @@ export async function pythonSeeds(root: string): Promise<FeatureSeed[]> {
   }
 
   for (const route of await fastApiRouteSeeds(root, testFiles, testCommand)) {
+    seeds.push(route);
+  }
+
+  for (const route of await djangoRouteSeeds(root, testFiles, testCommand)) {
     seeds.push(route);
   }
 
@@ -373,6 +384,548 @@ async function resolvePythonScript(
     }
   }
   return { entryPath: metadataPath, symbol };
+}
+
+async function djangoRouteSeeds(
+  root: string,
+  testFiles: string[],
+  testCommand: string | null,
+): Promise<FeatureSeed[]> {
+  const hasDjangoDependency = await pythonDependencyHas(root, "django");
+  const routeFiles = uniquePaths([
+    ...(await rootPythonSourceFiles(root)),
+    ...(await walk(root, await pythonSourceRoots(root))).filter(isReviewablePythonSourceFile),
+  ]);
+  const seeds: FeatureSeed[] = [];
+  for (const filePath of routeFiles) {
+    const source = await readFile(join(root, filePath), "utf8");
+    if (!sourceLooksDjangoUrls(filePath, source, hasDjangoDependency)) {
+      continue;
+    }
+    for (const route of parseDjangoRoutes(filePath, source)) {
+      const tests = associatedTests([route.filePath], testFiles, testCommand);
+      seeds.push({
+        title: `Django route ${route.routePath}`,
+        summary: djangoRouteSummary(route),
+        kind: "route",
+        source: "python-django-route",
+        confidence: "high",
+        entryPath: route.filePath,
+        symbol: route.symbol,
+        route: route.routePath,
+        command: null,
+        ownedFiles: [{ path: route.filePath, reason: "Django URL route declaration" }],
+        contextFiles: tests.map((test) => ({ path: test.path, reason: "associated test" })),
+        tests,
+        tags: ["python", "django", "route"],
+        trustBoundaries: djangoRouteTrustBoundaries(route),
+        testCommand,
+        skipNearbyTests: true,
+      });
+    }
+  }
+  return seeds;
+}
+
+function sourceLooksDjangoUrls(
+  filePath: string,
+  source: string,
+  hasDjangoDependency: boolean,
+): boolean {
+  if (!/(^|\/)urls\.py$/u.test(filePath) || djangoUrlpatternsAssignments(source).length === 0) {
+    return false;
+  }
+  if (sourceLooksDjangoUrlsImport(source)) {
+    return true;
+  }
+  return hasDjangoDependency;
+}
+
+function sourceLooksDjangoUrlsImport(source: string): boolean {
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === undefined) {
+      break;
+    }
+    const stringEnd = pythonStringEnd(source, index);
+    if (stringEnd !== null) {
+      index = stringEnd;
+      continue;
+    }
+    if (char === "#") {
+      index = pythonCommentEnd(source, index);
+      continue;
+    }
+    if (!isPythonLineStart(source, index)) {
+      continue;
+    }
+    const lineEnd = source.indexOf("\n", index);
+    const rawLine = source.slice(index, lineEnd === -1 ? source.length : lineEnd);
+    if (
+      /^(?:from\s+django\.(?:urls|conf\.urls)\s+import\s+|import\s+django\.(?:urls|conf\.urls)\b)/u.test(
+        rawLine,
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function parseDjangoRoutes(filePath: string, source: string): DjangoRoute[] {
+  const routes: DjangoRoute[] = [];
+  for (const call of djangoRouteCalls(source)) {
+    const route = parseDjangoRouteCall(filePath, call);
+    if (route !== null) {
+      routes.push(route);
+    }
+  }
+  return uniqueDjangoRoutes(routes);
+}
+
+function djangoRouteCalls(source: string): string[] {
+  return djangoUrlpatternsBodies(source).flatMap(djangoRouteCallsInUrlpatterns);
+}
+
+function djangoUrlpatternsBodies(source: string): string[] {
+  const bodies: string[] = [];
+  for (const assignment of djangoUrlpatternsAssignments(source)) {
+    const valueIndex = nextPythonValueIndex(source, assignment.valueStart);
+    if (source[valueIndex] !== "[") {
+      continue;
+    }
+    const end = matchingPythonBracketEnd(source, valueIndex);
+    if (end !== null) {
+      bodies.push(source.slice(valueIndex + 1, end));
+    }
+  }
+  return bodies;
+}
+
+function djangoUrlpatternsAssignments(source: string): Array<{ valueStart: number }> {
+  const assignments: Array<{ valueStart: number }> = [];
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === undefined) {
+      break;
+    }
+    const stringEnd = pythonStringEnd(source, index);
+    if (stringEnd !== null) {
+      index = stringEnd;
+      continue;
+    }
+    if (char === "#") {
+      index = pythonCommentEnd(source, index);
+      continue;
+    }
+    if (!isPythonLineStart(source, index)) {
+      continue;
+    }
+    if (!source.startsWith("urlpatterns", index)) {
+      continue;
+    }
+    const lineEnd = source.indexOf("\n", index);
+    const rawLine = source.slice(index, lineEnd === -1 ? source.length : lineEnd);
+    const match = /^urlpatterns\s*(?::[^=\n]+)?\s*(\+?=)/u.exec(rawLine);
+    if (match?.[0] !== undefined) {
+      assignments.push({ valueStart: index + match[0].length });
+    }
+  }
+  return assignments;
+}
+
+function isPythonLineStart(source: string, index: number): boolean {
+  return index === 0 || source[index - 1] === "\n";
+}
+
+function nextPythonValueIndex(source: string, index: number): number {
+  let current = index;
+  while (current < source.length) {
+    const char = source[current];
+    if (char === "#") {
+      const newline = source.indexOf("\n", current + 1);
+      current = newline === -1 ? source.length : newline + 1;
+      continue;
+    }
+    if (char === " " || char === "\t" || char === "\r" || char === "\n") {
+      current += 1;
+      continue;
+    }
+    break;
+  }
+  return current;
+}
+
+function matchingPythonBracketEnd(source: string, start: number): number | null {
+  let depth = 0;
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === undefined) {
+      break;
+    }
+    const stringEnd = pythonStringEnd(source, index);
+    if (stringEnd !== null) {
+      index = stringEnd;
+      continue;
+    }
+    if (char === "#") {
+      index = pythonCommentEnd(source, index);
+      continue;
+    }
+    if (char === "[") {
+      depth += 1;
+      continue;
+    }
+    if (char === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+  return null;
+}
+
+function djangoRouteCallsInUrlpatterns(source: string): string[] {
+  const calls: string[] = [];
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === undefined) {
+      break;
+    }
+    const stringEnd = pythonStringEnd(source, index);
+    if (stringEnd !== null) {
+      index = stringEnd;
+      continue;
+    }
+    if (char === "#") {
+      index = pythonCommentEnd(source, index);
+      continue;
+    }
+    if (parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
+      const call = djangoRouteCallAt(source, index);
+      if (call !== null) {
+        calls.push(call.source);
+        index = call.end;
+        continue;
+      }
+    }
+    if (char === "(") {
+      parenDepth += 1;
+    } else if (char === ")" && parenDepth > 0) {
+      parenDepth -= 1;
+    } else if (char === "[") {
+      bracketDepth += 1;
+    } else if (char === "]" && bracketDepth > 0) {
+      bracketDepth -= 1;
+    } else if (char === "{") {
+      braceDepth += 1;
+    } else if (char === "}" && braceDepth > 0) {
+      braceDepth -= 1;
+    }
+  }
+  return calls;
+}
+
+function djangoRouteCallAt(source: string, index: number): { source: string; end: number } | null {
+  const helper = djangoRouteHelperAt(source, index);
+  if (helper === null) {
+    return null;
+  }
+  let parenIndex = index + helper.length;
+  while (source[parenIndex] === " " || source[parenIndex] === "\t") {
+    parenIndex += 1;
+  }
+  if (source[parenIndex] !== "(") {
+    return null;
+  }
+  const end = matchingPythonParenEnd(source, parenIndex);
+  return end === null ? null : { source: source.slice(index, end + 1), end };
+}
+
+function djangoRouteHelperAt(source: string, index: number): string | null {
+  const previous = source[index - 1];
+  if (previous !== undefined && /[A-Za-z0-9_.]/u.test(previous)) {
+    return null;
+  }
+  for (const helper of ["re_path", "path", "url"]) {
+    if (!source.startsWith(helper, index)) {
+      continue;
+    }
+    const next = source[index + helper.length];
+    if (next === "(" || next === " " || next === "\t") {
+      return helper;
+    }
+  }
+  return null;
+}
+
+function matchingPythonParenEnd(source: string, start: number): number | null {
+  let depth = 0;
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === undefined) {
+      break;
+    }
+    const stringEnd = pythonStringEnd(source, index);
+    if (stringEnd !== null) {
+      index = stringEnd;
+      continue;
+    }
+    if (char === "#") {
+      index = pythonCommentEnd(source, index);
+      continue;
+    }
+    if (char === "(") {
+      depth += 1;
+      continue;
+    }
+    if (char === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+  return null;
+}
+
+function pythonStringEnd(source: string, start: number): number | null {
+  const quoteStart = pythonStringQuoteStart(source, start);
+  if (quoteStart === null) {
+    return null;
+  }
+  const quote = source[quoteStart];
+  if (quote !== '"' && quote !== "'") {
+    return null;
+  }
+  const triple = source.startsWith(quote.repeat(3), quoteStart);
+  const endQuote = triple ? quote.repeat(3) : quote;
+  let escaped = false;
+  for (let index = quoteStart + endQuote.length; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === undefined) {
+      break;
+    }
+    if (triple) {
+      if (source.startsWith(endQuote, index)) {
+        return index + endQuote.length - 1;
+      }
+      continue;
+    }
+    if (escaped) {
+      escaped = false;
+    } else if (char === "\\") {
+      escaped = true;
+    } else if (char === quote) {
+      return index;
+    }
+  }
+  return source.length - 1;
+}
+
+function pythonStringQuoteStart(source: string, start: number): number | null {
+  const char = source[start];
+  if (char === '"' || char === "'") {
+    return start;
+  }
+  if (char === undefined || !/[rRuUbBfF]/u.test(char)) {
+    return null;
+  }
+  let index = start;
+  while (/[rRuUbBfF]/u.test(source[index] ?? "")) {
+    index += 1;
+  }
+  const quote = source[index];
+  if (quote !== '"' && quote !== "'") {
+    return null;
+  }
+  const prefix = source.slice(start, index).toLowerCase();
+  return /^[rubf]+$/u.test(prefix) ? index : null;
+}
+
+function pythonCommentEnd(source: string, start: number): number {
+  const newline = source.indexOf("\n", start + 1);
+  return newline === -1 ? source.length - 1 : newline;
+}
+
+function parseDjangoRouteCall(filePath: string, call: string): DjangoRoute | null {
+  const match = /^\s*(path|re_path|url)\s*\(([\s\S]*)\)\s*,?\s*(?:#.*)?$/u.exec(call);
+  const helper = match?.[1];
+  const args = match?.[2];
+  if (helper === undefined || args === undefined) {
+    return null;
+  }
+  const parts = splitTopLevelPythonArgs(args);
+  const rawRoute = pythonStringLiteralValue(parts[0] ?? "");
+  if (rawRoute === null) {
+    return null;
+  }
+  const routePath =
+    helper === "path" ? normalizeDjangoPathRoute(rawRoute) : normalizeDjangoRegexRoute(rawRoute);
+  if (routePath === null) {
+    return null;
+  }
+  const target = (parts[1] ?? "").trim();
+  const include = target.startsWith("include(");
+  return {
+    filePath,
+    routePath,
+    symbol: include ? djangoIncludeSymbol(target) : djangoHandlerSymbol(target),
+    include,
+  };
+}
+
+function splitTopLevelPythonArgs(source: string): string[] {
+  const args: string[] = [];
+  let start = 0;
+  let quote: string | null = null;
+  let escaped = false;
+  let depth = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === undefined) {
+      break;
+    }
+    if (quote !== null) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === "(" || char === "[" || char === "{") {
+      depth += 1;
+    } else if (char === ")" || char === "]" || char === "}") {
+      depth -= 1;
+    } else if (char === "," && depth === 0) {
+      args.push(source.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  args.push(source.slice(start).trim());
+  return args;
+}
+
+function pythonStringLiteralValue(source: string): string | null {
+  const match = /^\s*([rRuUbBfF]*)(["'])(.*?)\2\s*$/u.exec(source);
+  const prefix = match?.[1] ?? "";
+  const value = match?.[3];
+  if (value === undefined || /f/iu.test(prefix)) {
+    return null;
+  }
+  if (/r/iu.test(prefix)) {
+    return value;
+  }
+  return unescapePythonString(value);
+}
+
+function unescapePythonString(value: string): string {
+  let output = "";
+  let escaped = false;
+  for (const char of value) {
+    if (escaped) {
+      output += char;
+      escaped = false;
+    } else if (char === "\\") {
+      escaped = true;
+    } else {
+      output += char;
+    }
+  }
+  return escaped ? `${output}\\` : output;
+}
+
+function normalizeDjangoPathRoute(route: string): string | null {
+  const converted = route.replace(
+    /<(?:(?:[A-Za-z_][A-Za-z0-9_]*):)?([A-Za-z_][A-Za-z0-9_]*)>/gu,
+    ":$1",
+  );
+  if (/[<>]/u.test(converted)) {
+    return null;
+  }
+  return normalizeDjangoRoutePath(converted);
+}
+
+function normalizeDjangoRegexRoute(route: string): string | null {
+  let converted = route.replace(/^\^/u, "").replace(/\$$/u, "");
+  if (/\(\?(?:[=!<]|:)/u.test(converted) || /\|/u.test(converted)) {
+    return null;
+  }
+  converted = converted.replace(/\(\?P<([A-Za-z_][A-Za-z0-9_]*)>[^)]+\)/gu, ":$1");
+  if (/[()[\]{}+*?]/u.test(converted) || /\\(?!\/)/u.test(converted)) {
+    return null;
+  }
+  return normalizeDjangoRoutePath(converted.replace(/\\\//gu, "/"));
+}
+
+function normalizeDjangoRoutePath(route: string): string {
+  const trimmed = route.replace(/^\/+/u, "");
+  return trimmed.length === 0 ? "/" : `/${trimmed}`;
+}
+
+function djangoIncludeSymbol(target: string): string | null {
+  const match = /^include\s*\(([\s\S]*)\)\s*$/u.exec(target);
+  const args = match?.[1];
+  if (args === undefined) {
+    return null;
+  }
+  return pythonStringLiteralValue(splitTopLevelPythonArgs(args)[0] ?? "");
+}
+
+function djangoHandlerSymbol(target: string): string | null {
+  const viewCall =
+    /^([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.as_view\s*\(\s*\)\s*$/u.exec(
+      target,
+    )?.[1];
+  if (viewCall !== undefined) {
+    return `${viewCall}.as_view`;
+  }
+  return /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/u.test(target) ? target : null;
+}
+
+function djangoRouteSummary(route: DjangoRoute): string {
+  if (route.include) {
+    return `Django URL include ${route.routePath} declared in ${route.filePath}.`;
+  }
+  if (route.symbol !== null) {
+    return `Django route ${route.routePath} handled by ${route.symbol} in ${route.filePath}.`;
+  }
+  return `Django route ${route.routePath} declared in ${route.filePath}.`;
+}
+
+function djangoRouteTrustBoundaries(route: DjangoRoute): FeatureSeed["trustBoundaries"] {
+  const boundaries: FeatureSeed["trustBoundaries"] = ["network", "user-input", "serialization"];
+  if (
+    /(^|\/)(admin|auth|login|logout|token|session|user|account|password|register|signup)(\/|$)/iu.test(
+      route.routePath,
+    )
+  ) {
+    boundaries.push("auth");
+  }
+  return boundaries;
+}
+
+function uniqueDjangoRoutes(routes: DjangoRoute[]): DjangoRoute[] {
+  const seen = new Set<string>();
+  const output: DjangoRoute[] = [];
+  for (const route of routes) {
+    const key = `${route.filePath}:${route.routePath}:${route.symbol ?? ""}:${String(route.include)}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    output.push(route);
+  }
+  return output;
 }
 
 async function fastApiRouteSeeds(

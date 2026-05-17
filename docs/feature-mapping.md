@@ -43,7 +43,7 @@ Supported deterministic mappers today:
 - Go `cmd/*/main.go`
 - Go `internal/*` packages
 - Python project metadata, console scripts, root app files, bounded source groups,
-  pytest suites, and Flask/FastAPI routes
+  pytest suites, and Flask/FastAPI/Django routes
 - Java and Kotlin JVM semantic role groups, plus Kotlin Android semantic role
   groups including Hilt, Dagger, Koin, and Metro
 - Ruby project metadata, executables, source groups, RSpec/Minitest suites,
@@ -137,11 +137,14 @@ Python mapping covers `pyproject.toml`, `setup.cfg`, `setup.py`, and
 `requirements.txt` metadata; `[project.scripts]`, `[tool.poetry.scripts]`,
 `setup.cfg` `console_scripts`, and `setup.py` console script entry points; root
 app files; source groups under common Python source roots including `web/`;
-pytest files; Flask `@*.route(...)` handlers; and FastAPI `@*.get(...)` /
-`@*.api_route(...)` handlers. Flask and FastAPI route methods are read from list,
-tuple, or set literals. FastAPI paths can be positional strings or literal
-`path=` keywords. Default Python command detection covers pytest, ruff, mypy,
-pyright, and black.
+pytest files; Flask `@*.route(...)` handlers; FastAPI `@*.get(...)` /
+`@*.api_route(...)` handlers; and conservative Django `urls.py` `path(...)`,
+`re_path(...)`, and legacy `url(...)` declarations. Flask and FastAPI route
+methods are read from list, tuple, or set literals. FastAPI paths can be
+positional strings or literal `path=` keywords. Django route paths are normalized
+from literal route strings and simple named regex groups; includes are mapped as
+their own URL groups without recursively expanding imported URL configs. Default
+Python command detection covers pytest, ruff, mypy, pyright, and black.
 
 Ruby mapping covers project metadata, executables, source groups, RSpec and
 Minitest suites, and Rails app structure. Rails legacy `config/secrets.yml`,
@@ -153,7 +156,6 @@ Known gaps:
 - Express/Fastify/Hono route mapping is conservative and does not infer
   prefixes from cross-file router mounts such as `app.use("/api", router)`,
   `fastify.register(..., { prefix })`, or `app.route("/api", subApp)`
-- no Django route mapper yet
 - Laravel route parsing is convention-based, does not execute Laravel route discovery,
   and may omit prefixes applied by `Route::group(...)` wrappers
 - no import graph expansion beyond nearby tests yet

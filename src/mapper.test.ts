@@ -11421,6 +11421,183 @@ add_executable(headerapp include/headers.hpp)
     expect(result.features.some((feature) => feature.source === "python-flask-route")).toBe(false);
   });
 
+  it("maps Django urls.py routes conservatively", async () => {
+    const root = await fixtureRoot("clawpatch-python-django-routes-");
+    await writeFixture(root, "requirements.txt", "django\npytest\n");
+    await writeFixture(root, "mysite/__init__.py", "");
+    await writeFixture(
+      root,
+      "mysite/urls.py",
+      [
+        "from django.conf.urls import url",
+        "from django.urls import include, path, re_path",
+        "from django.contrib import admin",
+        "from . import views",
+        "from .views import SignupView",
+        "",
+        '"""',
+        "urlpatterns = [",
+        "    path('docs-only/', views.docs_only),",
+        "]",
+        '"""',
+        "",
+        'r"""',
+        "urlpatterns = [",
+        "    path('raw-docs-only/', views.raw_docs_only),",
+        "]",
+        '"""',
+        "",
+        "def build_local_patterns():",
+        "    '''",
+        "    urlpatterns = [",
+        "        path('indented-docs-only/', views.indented_docs_only),",
+        "    ]",
+        "    '''",
+        "    urlpatterns = [",
+        "        path('local-only/', views.local_only),",
+        "    ]",
+        "    return urlpatterns",
+        "",
+        "def helper_patterns():",
+        "    return [",
+        "        path('helper/', views.helper),",
+        "    ]",
+        "",
+        "unused_patterns = [",
+        "    path('unused/', views.unused),",
+        "]",
+        "",
+        "urlpatterns = [path('inline/', views.inline), re_path(r'^inline-regex/$', views.inline_regex),",
+        "    path('', views.index, name='index'),",
+        "    path('users/<int:pk>/', views.user_detail, name='user-detail'),",
+        "    path('accounts/password/reset/', views.password_reset, name='password-reset'),",
+        "    path('orders/', views.orders, name='orders'),",
+        "    path(",
+        "        'reports/',",
+        "        views.reports,",
+        "        name='reports',",
+        "    ),",
+        "    path('signup/', SignupView.as_view(), name='signup'),",
+        "    path('admin/', admin.site.urls),",
+        "    path('api/', include('api.urls')),",
+        "    path('tuple-api/', include(('tuple.urls', 'tuple'), namespace='tuple')),",
+        "    re_path(r'^legacy/(?P<slug>[-\\w]+)/$', views.legacy, name='legacy'),",
+        "    url(r'^old/(?P<pk>\\d+)/$', views.old_detail),",
+        "    path(DYNAMIC_ROUTE, views.dynamic),",
+        "    path(f'tenant/{slug}/', views.dynamic),",
+        "    re_path(r'^(foo|bar)/$', views.complex_regex),",
+        "    # path('commented/', views.commented),",
+        "    \"path('string/', views.string)\",",
+        "]",
+        "urlpatterns += [path('extra/', views.extra)]",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(root, "fallback/__init__.py", "");
+    await writeFixture(
+      root,
+      "fallback/urls.py",
+      [
+        "from . import views",
+        "",
+        "urlpatterns = [",
+        "    path('dependency-only/', views.dependency_only),",
+        "]",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(root, "mysite/views.py", "class SignupView:\n    pass\n");
+    await writeFixture(root, "fallback/views.py", "def dependency_only():\n    pass\n");
+    await writeFixture(root, "mysite/test_urls.py", "def test_urls():\n    pass\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const routes = result.features.filter((feature) => feature.source === "python-django-route");
+    const titles = routes.map((feature) => feature.title);
+    const byTitle = (title: string) => routes.find((feature) => feature.title === title);
+
+    expect(project.detected.frameworks).toContain("django");
+    expect(titles).toEqual(
+      expect.arrayContaining([
+        "Django route /",
+        "Django route /users/:pk/",
+        "Django route /accounts/password/reset/",
+        "Django route /orders/",
+        "Django route /reports/",
+        "Django route /signup/",
+        "Django route /admin/",
+        "Django route /api/",
+        "Django route /tuple-api/",
+        "Django route /dependency-only/",
+        "Django route /legacy/:slug/",
+        "Django route /old/:pk/",
+        "Django route /inline/",
+        "Django route /inline-regex/",
+        "Django route /extra/",
+      ]),
+    );
+    expect(byTitle("Django route /")?.entrypoints[0]).toMatchObject({
+      path: "mysite/urls.py",
+      symbol: "views.index",
+      route: "/",
+    });
+    expect(byTitle("Django route /")?.tests).toEqual([
+      { path: "mysite/test_urls.py", command: "pytest" },
+    ]);
+    expect(byTitle("Django route /api/")?.entrypoints[0]?.symbol).toBe("api.urls");
+    expect(byTitle("Django route /tuple-api/")?.entrypoints[0]?.symbol).toBeNull();
+    expect(byTitle("Django route /signup/")?.entrypoints[0]?.symbol).toBe("SignupView.as_view");
+    expect(byTitle("Django route /admin/")?.entrypoints[0]?.symbol).toBe("admin.site.urls");
+    expect(byTitle("Django route /dependency-only/")?.entrypoints[0]).toMatchObject({
+      path: "fallback/urls.py",
+      symbol: "views.dependency_only",
+      route: "/dependency-only/",
+    });
+    expect(byTitle("Django route /accounts/password/reset/")?.trustBoundaries).toContain("auth");
+    expect(byTitle("Django route /signup/")?.trustBoundaries).toContain("auth");
+    expect(byTitle("Django route /users/:pk/")?.trustBoundaries).not.toContain("auth");
+    expect(byTitle("Django route /orders/")?.trustBoundaries).not.toContain("auth");
+    expect(titles).not.toContain("Django route /tenant/");
+    expect(titles).not.toContain("Django route /commented/");
+    expect(titles).not.toContain("Django route /string/");
+    expect(titles).not.toContain("Django route /(foo|bar)/");
+    expect(titles).not.toContain("Django route /docs-only/");
+    expect(titles).not.toContain("Django route /raw-docs-only/");
+    expect(titles).not.toContain("Django route /indented-docs-only/");
+    expect(titles).not.toContain("Django route /local-only/");
+    expect(titles).not.toContain("Django route /helper/");
+    expect(titles).not.toContain("Django route /unused/");
+  });
+
+  it("does not map Django-shaped URLs without a Django signal", async () => {
+    const root = await fixtureRoot("clawpatch-python-django-url-false-positive-");
+    await writeFixture(root, "requirements.txt", "pytest\n");
+    await writeFixture(root, "web/__init__.py", "");
+    await writeFixture(
+      root,
+      "web/urls.py",
+      [
+        'r"""from django.urls import path"""',
+        "",
+        "def path(route, handler):",
+        "    return (route, handler)",
+        "",
+        "urlpatterns = [",
+        "    path('not-django/', handler),",
+        "]",
+        "def handler():",
+        "    pass",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(project.detected.frameworks).not.toContain("django");
+    expect(result.features.some((feature) => feature.source === "python-django-route")).toBe(false);
+  });
+
   it("maps FastAPI routes in root and web source files", async () => {
     const root = await fixtureRoot("clawpatch-python-fastapi-routes-");
     await writeFixture(root, "requirements.txt", "fastapi\npytest\n");
