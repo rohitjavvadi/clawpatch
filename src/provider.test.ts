@@ -1,16 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { ClawpatchError } from "./errors.js";
 import { __testing, extractJson, providerByName } from "./provider.js";
 import { reviewOutputSchema } from "./types.js";
 
 // eslint-disable-next-line no-underscore-dangle
 const {
+  addCodexSandboxArgs,
   addCodexModelArgs,
   acpxFailureMessage,
   extractAcpxJson,
   extractOpencodeJson,
   parseAcpxAgent,
   parseCodexJson,
+  piThinkingLevel,
   providerJsonSchema,
 } = __testing;
 
@@ -126,18 +128,76 @@ describe("parseCodexJson", () => {
 });
 
 describe("Codex provider args", () => {
+  const originalCodexSandbox = process.env["CLAWPATCH_CODEX_SANDBOX"];
+
+  afterEach(() => {
+    if (originalCodexSandbox === undefined) {
+      delete process.env["CLAWPATCH_CODEX_SANDBOX"];
+    } else {
+      process.env["CLAWPATCH_CODEX_SANDBOX"] = originalCodexSandbox;
+    }
+  });
+
+  it("uses the requested Codex sandbox by default", () => {
+    delete process.env["CLAWPATCH_CODEX_SANDBOX"];
+    const args = ["exec"];
+
+    addCodexSandboxArgs(args, "read-only");
+
+    expect(args).toEqual(["exec", "--sandbox", "read-only"]);
+  });
+
+  it("allows Codex sandbox mode to be overridden by environment", () => {
+    process.env["CLAWPATCH_CODEX_SANDBOX"] = " danger-full-access ";
+    const args = ["exec"];
+
+    addCodexSandboxArgs(args, "read-only");
+
+    expect(args).toEqual(["exec", "--sandbox", "danger-full-access"]);
+  });
+
+  it("ignores blank Codex sandbox overrides", () => {
+    process.env["CLAWPATCH_CODEX_SANDBOX"] = " ";
+    const args = ["exec"];
+
+    addCodexSandboxArgs(args, "read-only");
+
+    expect(args).toEqual(["exec", "--sandbox", "read-only"]);
+  });
+
+  it("can bypass Codex sandboxing when the host already provides isolation", () => {
+    process.env["CLAWPATCH_CODEX_SANDBOX"] = " none ";
+    const args = ["exec"];
+
+    addCodexSandboxArgs(args, "read-only");
+
+    expect(args).toEqual(["exec", "--dangerously-bypass-approvals-and-sandbox"]);
+  });
+
   it("passes model and reasoning effort through explicit CLI config", () => {
     const args = ["exec"];
 
-    addCodexModelArgs(args, { model: "gpt-5.5", reasoningEffort: "xhigh" });
+    addCodexModelArgs(args, {
+      model: "gpt-5.5",
+      reasoningEffort: "xhigh",
+      skipGitRepoCheck: false,
+    });
 
     expect(args).toEqual(["exec", "--model", "gpt-5.5", "-c", 'model_reasoning_effort="xhigh"']);
+  });
+
+  it("passes the Git repo check bypass to Codex when requested", () => {
+    const args = ["exec"];
+
+    addCodexModelArgs(args, { model: null, reasoningEffort: null, skipGitRepoCheck: true });
+
+    expect(args).toEqual(["exec", "--skip-git-repo-check"]);
   });
 
   it("leaves Codex defaults untouched when unset", () => {
     const args = ["exec"];
 
-    addCodexModelArgs(args, { model: null, reasoningEffort: null });
+    addCodexModelArgs(args, { model: null, reasoningEffort: null, skipGitRepoCheck: false });
 
     expect(args).toEqual(["exec"]);
   });
@@ -157,6 +217,16 @@ describe("providerJsonSchema", () => {
         "multipleOf",
       ]),
     );
+  });
+});
+
+describe("piThinkingLevel", () => {
+  it("maps clawpatch none to pi off", () => {
+    expect(piThinkingLevel("none")).toBe("off");
+  });
+
+  it("passes supported pi thinking levels through", () => {
+    expect(piThinkingLevel("xhigh")).toBe("xhigh");
   });
 });
 
@@ -407,6 +477,7 @@ describe("providerByName", () => {
     expect(providerByName("acpx").name).toBe("acpx");
     expect(providerByName("grok").name).toBe("grok");
     expect(providerByName("opencode").name).toBe("opencode");
+    expect(providerByName("pi").name).toBe("pi");
   });
 
   it("still supports codex, mock, and mock-fail", () => {

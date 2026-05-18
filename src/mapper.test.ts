@@ -6381,6 +6381,86 @@ describe("mapFeatures", () => {
     ).toBe(false);
   });
 
+  it("does not treat Android apply syntax inside Gradle raw strings as Android modules", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-raw-string-apply-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(
+      root,
+      "build.gradle.kts",
+      [
+        'plugins { id("org.jetbrains.kotlin.jvm") }',
+        'val sample = """',
+        "apply plugin: 'com.android.library'",
+        '"""',
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/api/OrderController.kt",
+      [
+        "package com.example.api",
+        "",
+        "import org.springframework.web.bind.annotation.RestController",
+        "",
+        "@RestController",
+        "class OrderController",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const web = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin server role web entrypoint "),
+    );
+
+    expect(web?.source).toBe("kotlin-server-role-web-entrypoint");
+    expect(
+      result.features.some((feature) => feature.source.startsWith("kotlin-android-role-")),
+    ).toBe(false);
+  });
+
+  it("does not treat Android extension blocks inside Gradle raw strings as Android modules", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-android-raw-string-extension-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(
+      root,
+      "build.gradle.kts",
+      [
+        'plugins { id("org.jetbrains.kotlin.jvm") }',
+        'val sample = """',
+        "android { namespace = 'com.example' }",
+        '"""',
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/api/OrderController.kt",
+      [
+        "package com.example.api",
+        "",
+        "import org.springframework.web.bind.annotation.RestController",
+        "",
+        "@RestController",
+        "class OrderController",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const web = result.features.find((feature) =>
+      feature.title.startsWith("Kotlin server role web entrypoint "),
+    );
+
+    expect(web?.source).toBe("kotlin-server-role-web-entrypoint");
+    expect(
+      result.features.some((feature) => feature.source.startsWith("kotlin-android-role-")),
+    ).toBe(false);
+  });
+
   it("does not treat apply-false Android plugin declarations with GString versions as Android modules", async () => {
     const root = await fixtureRoot("clawpatch-kotlin-android-gstring-apply-false-");
     await writeFixture(root, "settings.gradle", "pluginManagement {}\n");
@@ -7166,6 +7246,68 @@ describe("mapFeatures", () => {
     );
   });
 
+  it("maps Kotlin supertypes before generic where constraints", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-where-supertype-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/api/ApiRoute.kt",
+      [
+        "package com.example.api",
+        "",
+        "import io.ktor.server.routing.Route",
+        "",
+        "class ApiRoute<T> : Route",
+        "  where T : Any",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const component = result.features.find(
+      (feature) =>
+        feature.source === "kotlin-server-role-framework-component" &&
+        feature.ownedFiles.some(
+          (file) => file.path === "src/main/kotlin/com/example/api/ApiRoute.kt",
+        ),
+    );
+
+    expect(component?.ownedFiles[0]?.reason).toContain(
+      "inherits external type io.ktor.server.routing.Route",
+    );
+  });
+
+  it("does not strip where package segments from Kotlin supertypes", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-where-package-supertype-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/where/Route.kt",
+      ["package com.where", "", "open class Route", ""].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/api/ApiRoute.kt",
+      ["package com.example.api", "", "class ApiRoute : com.where.Route()", ""].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-server-role-framework-component" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/kotlin/com/example/api/ApiRoute.kt",
+          ),
+      ),
+    ).toBe(false);
+  });
+
   it("maps bodyless Kotlin supertypes before top-level functions", async () => {
     const root = await fixtureRoot("clawpatch-kotlin-bodyless-supertype-");
     await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
@@ -7532,6 +7674,42 @@ describe("mapFeatures", () => {
         "package com.example.factory",
         "",
         "import com.example.routes.routes",
+        "",
+        "class Factory { fun handler(): routes.Handler = TODO() }",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.some(
+        (feature) =>
+          feature.source === "kotlin-server-role-framework-component" &&
+          feature.ownedFiles.some(
+            (file) => file.path === "src/main/kotlin/com/example/factory/Factory.kt",
+          ),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not resolve wildcard-imported local lowercase dotted Kotlin return types as framework roles", async () => {
+    const root = await fixtureRoot("clawpatch-kotlin-wildcard-local-lowercase-dotted-type-");
+    await writeFixture(root, "settings.gradle.kts", "pluginManagement {}\n");
+    await writeFixture(root, "build.gradle.kts", 'plugins { id("org.jetbrains.kotlin.jvm") }\n');
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/routes/Routes.kt",
+      ["package com.example.routes", "", "object routes { class Handler }", ""].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/main/kotlin/com/example/factory/Factory.kt",
+      [
+        "package com.example.factory",
+        "",
+        "import com.example.routes.*",
         "",
         "class Factory { fun handler(): routes.Handler = TODO() }",
         "",
@@ -8913,6 +9091,7 @@ add_executable(headerapp include/headers.hpp)
     await writeFixture(root, "include/headers.hpp", "int header_only(void);\n");
     await writeFixture(root, "vendor/dep.hpp", "int dep(void);\n");
     await writeFixture(root, "tests/myapp_test.cpp", "int main() { return 0; }\n");
+    await writeFixture(root, "src/deps/myapp_test.cpp", "int main() { return 0; }\n");
 
     const project = await detectProject(root);
     const result = await mapFeatures(root, project, []);
@@ -11470,6 +11649,185 @@ add_executable(headerapp include/headers.hpp)
     expect(result.features.some((feature) => feature.source === "python-flask-route")).toBe(false);
   });
 
+  it("maps Django urls.py routes conservatively", async () => {
+    const root = await fixtureRoot("clawpatch-python-django-routes-");
+    await writeFixture(root, "requirements.txt", "django\npytest\n");
+    await writeFixture(root, "mysite/__init__.py", "");
+    await writeFixture(
+      root,
+      "mysite/urls.py",
+      [
+        "from django.conf.urls import url",
+        "from django.urls import include, path, re_path",
+        "from django.contrib import admin",
+        "from . import views",
+        "from .views import SignupView",
+        "",
+        '"""',
+        "urlpatterns = [",
+        "    path('docs-only/', views.docs_only),",
+        "]",
+        '"""',
+        "",
+        'r"""',
+        "urlpatterns = [",
+        "    path('raw-docs-only/', views.raw_docs_only),",
+        "]",
+        '"""',
+        "",
+        "def build_local_patterns():",
+        "    '''",
+        "    urlpatterns = [",
+        "        path('indented-docs-only/', views.indented_docs_only),",
+        "    ]",
+        "    '''",
+        "    urlpatterns = [",
+        "        path('local-only/', views.local_only),",
+        "    ]",
+        "    return urlpatterns",
+        "",
+        "def helper_patterns():",
+        "    return [",
+        "        path('helper/', views.helper),",
+        "    ]",
+        "",
+        "unused_patterns = [",
+        "    path('unused/', views.unused),",
+        "]",
+        "",
+        "urlpatterns = [path('inline/', views.inline), re_path(r'^inline-regex/$', views.inline_regex),",
+        "    path('', views.index, name='index'),",
+        "    path('users/<int:pk>/', views.user_detail, name='user-detail'),",
+        "    path('accounts/password/reset/', views.password_reset, name='password-reset'),",
+        "    path('orders/', views.orders, name='orders'),",
+        "    path(",
+        "        'reports/',",
+        "        views.reports,",
+        "        name='reports',",
+        "    ),",
+        "    path('signup/', SignupView.as_view(), name='signup'),",
+        "    path('admin/', admin.site.urls),",
+        "    path('api/', include('api.urls')),",
+        "    path('tuple-api/', include(('tuple.urls', 'tuple'), namespace='tuple')),",
+        "    re_path(r'^legacy/(?P<slug>[-\\w]+)/$', views.legacy, name='legacy'),",
+        "    url(r'^old/(?P<pk>\\d+)/$', views.old_detail),",
+        "    path(DYNAMIC_ROUTE, views.dynamic),",
+        "    path(f'tenant/{slug}/', views.dynamic),",
+        "    re_path(r'^(foo|bar)/$', views.complex_regex),",
+        "    custom_path('custom/', views.custom),",
+        "    # path('commented/', views.commented),",
+        "    \"path('string/', views.string)\",",
+        "]",
+        "urlpatterns += [path('extra/', views.extra)]",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(root, "fallback/__init__.py", "");
+    await writeFixture(
+      root,
+      "fallback/urls.py",
+      [
+        "from . import views",
+        "",
+        "urlpatterns = [",
+        "    path('dependency-only/', views.dependency_only),",
+        "]",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(root, "mysite/views.py", "class SignupView:\n    pass\n");
+    await writeFixture(root, "fallback/views.py", "def dependency_only():\n    pass\n");
+    await writeFixture(root, "mysite/test_urls.py", "def test_urls():\n    pass\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const routes = result.features.filter((feature) => feature.source === "python-django-route");
+    const titles = routes.map((feature) => feature.title);
+    const byTitle = (title: string) => routes.find((feature) => feature.title === title);
+
+    expect(project.detected.frameworks).toContain("django");
+    expect(titles).toEqual(
+      expect.arrayContaining([
+        "Django route /",
+        "Django route /users/:pk/",
+        "Django route /accounts/password/reset/",
+        "Django route /orders/",
+        "Django route /reports/",
+        "Django route /signup/",
+        "Django route /admin/",
+        "Django route /api/",
+        "Django route /tuple-api/",
+        "Django route /dependency-only/",
+        "Django route /legacy/:slug/",
+        "Django route /old/:pk/",
+        "Django route /inline/",
+        "Django route /inline-regex/",
+        "Django route /extra/",
+      ]),
+    );
+    expect(byTitle("Django route /")?.entrypoints[0]).toMatchObject({
+      path: "mysite/urls.py",
+      symbol: "views.index",
+      route: "/",
+    });
+    expect(byTitle("Django route /")?.tests).toEqual([
+      { path: "mysite/test_urls.py", command: "pytest" },
+    ]);
+    expect(byTitle("Django route /api/")?.entrypoints[0]?.symbol).toBe("api.urls");
+    expect(byTitle("Django route /tuple-api/")?.entrypoints[0]?.symbol).toBeNull();
+    expect(byTitle("Django route /signup/")?.entrypoints[0]?.symbol).toBe("SignupView.as_view");
+    expect(byTitle("Django route /admin/")?.entrypoints[0]?.symbol).toBe("admin.site.urls");
+    expect(byTitle("Django route /dependency-only/")?.entrypoints[0]).toMatchObject({
+      path: "fallback/urls.py",
+      symbol: "views.dependency_only",
+      route: "/dependency-only/",
+    });
+    expect(byTitle("Django route /accounts/password/reset/")?.trustBoundaries).toContain("auth");
+    expect(byTitle("Django route /signup/")?.trustBoundaries).toContain("auth");
+    expect(byTitle("Django route /users/:pk/")?.trustBoundaries).not.toContain("auth");
+    expect(byTitle("Django route /orders/")?.trustBoundaries).not.toContain("auth");
+    expect(titles).not.toContain("Django route /tenant/");
+    expect(titles).not.toContain("Django route /custom/");
+    expect(titles).not.toContain("Django route /commented/");
+    expect(titles).not.toContain("Django route /string/");
+    expect(titles).not.toContain("Django route /(foo|bar)/");
+    expect(titles).not.toContain("Django route /docs-only/");
+    expect(titles).not.toContain("Django route /raw-docs-only/");
+    expect(titles).not.toContain("Django route /indented-docs-only/");
+    expect(titles).not.toContain("Django route /local-only/");
+    expect(titles).not.toContain("Django route /helper/");
+    expect(titles).not.toContain("Django route /unused/");
+  });
+
+  it("does not map Django-shaped URLs without a Django signal", async () => {
+    const root = await fixtureRoot("clawpatch-python-django-url-false-positive-");
+    await writeFixture(root, "requirements.txt", "pytest\n");
+    await writeFixture(root, "web/__init__.py", "");
+    await writeFixture(
+      root,
+      "web/urls.py",
+      [
+        'r"""from django.urls import path"""',
+        "",
+        "def path(route, handler):",
+        "    return (route, handler)",
+        "",
+        "urlpatterns = [",
+        "    path('not-django/', handler),",
+        "]",
+        "def handler():",
+        "    pass",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(project.detected.frameworks).not.toContain("django");
+    expect(result.features.some((feature) => feature.source === "python-django-route")).toBe(false);
+  });
+
   it("maps FastAPI routes in root and web source files", async () => {
     const root = await fixtureRoot("clawpatch-python-fastapi-routes-");
     await writeFixture(root, "requirements.txt", "fastapi\npytest\n");
@@ -12840,5 +13198,970 @@ let package = Package(
     const core = result.features.find((feature) => feature.title === "Swift target Core");
 
     expect(core?.entrypoints[0]?.path).toBe("Sources/Core.swift");
+  });
+  it("detects Mix and Phoenix projects with useful default commands", async () => {
+    const root = await fixtureRoot("clawpatch-elixir-detect-");
+    await writeFixture(
+      root,
+      "mix.exs",
+      `defmodule SampleApp.MixProject do
+  use Mix.Project
+
+  def project do
+    [
+      # app: :wrong_app,
+      app: :sample_app,
+      version: "0.1.0",
+      elixir: "~> 1.18",
+      deps: deps()
+    ]
+  end
+
+  defp deps do
+    [
+      # {:ecto_sql, "~> 3.13"},
+      {:phoenix, "~> 1.8"},
+      {:phoenix_live_view, "~> 1.1"},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+    ]
+  end
+end
+`,
+    );
+
+    const project = await detectProject(root);
+
+    expect(project.detected.languages).toContain("elixir");
+    expect(project.detected.frameworks).toEqual(expect.arrayContaining(["mix", "phoenix"]));
+    expect(project.detected.frameworks).not.toContain("ecto_sql");
+    expect(project.detected.packageManagers).toContain("mix");
+    expect(project.detected.commands).toEqual({
+      typecheck: "mix compile --warnings-as-errors",
+      lint: "mix credo --strict",
+      format: "mix format --check-formatted",
+      test: "mix test",
+    });
+  });
+
+  it("maps Elixir contexts, Phoenix web slices, config, migrations, and scripts", async () => {
+    const root = await fixtureRoot("clawpatch-elixir-map-");
+    await writeFixture(
+      root,
+      "mix.exs",
+      `defmodule SampleApp.MixProject do
+  use Mix.Project
+
+  def project do
+    [
+      # app: :wrong_app,
+      app: :sample_app,
+      version: "0.1.0",
+      deps: deps()
+    ]
+  end
+
+  defp deps do
+    [{:phoenix, "~> 1.8"}, {:ecto_sql, "~> 3.13"}]
+  end
+end
+`,
+    );
+    await writeFixture(root, "config/config.exs", "import Config\n");
+    await writeFixture(
+      root,
+      "priv/repo/migrations/20260517000000_create_users.exs",
+      "defmodule SampleApp.Repo.Migrations.CreateUsers do\nend\n",
+    );
+    await writeFixture(root, "lib/sample_app/repo.ex", "defmodule SampleApp.Repo do\nend\n");
+    await writeFixture(
+      root,
+      "lib/sample_app/accounts.ex",
+      "defmodule SampleApp.Accounts do\nend\n",
+    );
+    await writeFixture(
+      root,
+      "lib/sample_app/accounts/user.ex",
+      "defmodule SampleApp.Accounts.User do\nend\n",
+    );
+    await writeFixture(
+      root,
+      "test/sample_app/accounts_test.exs",
+      "defmodule SampleApp.AccountsTest do\nuse ExUnit.Case\nend\n",
+    );
+    await writeFixture(root, "lib/sample_app/billing.ex", "defmodule SampleApp.Billing do\nend\n");
+    await writeFixture(
+      root,
+      "test/sample_app/billing_test.exs",
+      "defmodule SampleApp.BillingTest do\nuse ExUnit.Case\nend\n",
+    );
+    await writeFixture(
+      root,
+      "lib/sample_app_web/router.ex",
+      "defmodule SampleAppWeb.Router do\nend\n",
+    );
+    await writeFixture(
+      root,
+      "lib/sample_app_web/controllers/page_controller.ex",
+      "defmodule SampleAppWeb.PageController do\nend\n",
+    );
+    await writeFixture(
+      root,
+      "test/sample_app_web/controllers/page_controller_test.exs",
+      "defmodule SampleAppWeb.PageControllerTest do\nuse ExUnit.Case\nend\n",
+    );
+    await writeFixture(
+      root,
+      "lib/sample_app_web/live/dashboard_live.ex",
+      "defmodule SampleAppWeb.DashboardLive do\nend\n",
+    );
+    await writeFixture(root, "lib/sample_app_web/live/page_live.html.heex", "<div />\n");
+    await writeFixture(
+      root,
+      "test/sample_app_web/live/page_live_test.exs",
+      "defmodule SampleAppWeb.PageLiveTest do\nuse ExUnit.Case\nend\n",
+    );
+    await writeFixture(
+      root,
+      "lib/sample_app_web/components/layouts.ex",
+      "defmodule SampleAppWeb.Layouts do\nend\n",
+    );
+    await writeFixture(root, "scripts/release_check.exs", "Mix.install([])\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const titles = result.features.map((feature) => feature.title);
+    const accounts = result.features.find((feature) => feature.title === "Elixir context accounts");
+    const billing = result.features.find((feature) => feature.title === "Elixir context billing");
+    const controllers = result.features.find(
+      (feature) => feature.title === "Phoenix web controllers",
+    );
+    const live = result.features.find((feature) => feature.title === "Phoenix web live");
+    const migrations = result.features.find((feature) => feature.title === "Ecto migrations");
+
+    expect(titles).toEqual(
+      expect.arrayContaining([
+        "Elixir context accounts",
+        "Elixir context billing",
+        "Phoenix web controllers",
+        "Phoenix web live",
+        "Phoenix web components",
+        "Elixir runtime configuration",
+        "Ecto migrations",
+        "Project scripts",
+      ]),
+    );
+    expect(accounts?.ownedFiles.map((file) => file.path)).toEqual([
+      "lib/sample_app/accounts.ex",
+      "lib/sample_app/accounts/user.ex",
+    ]);
+    expect(accounts?.tests).toEqual([
+      {
+        path: "test/sample_app/accounts_test.exs",
+        command: "mix test test/sample_app/accounts_test.exs",
+      },
+    ]);
+    expect(billing?.ownedFiles.map((file) => file.path)).toEqual(["lib/sample_app/billing.ex"]);
+    expect(billing?.tests).toEqual([
+      {
+        path: "test/sample_app/billing_test.exs",
+        command: "mix test test/sample_app/billing_test.exs",
+      },
+    ]);
+    expect(controllers?.contextFiles.map((file) => file.path)).toContain(
+      "lib/sample_app_web/router.ex",
+    );
+    expect(controllers?.tests).toEqual([
+      {
+        path: "test/sample_app_web/controllers/page_controller_test.exs",
+        command: "mix test test/sample_app_web/controllers/page_controller_test.exs",
+      },
+    ]);
+    expect(live?.tests).toContainEqual({
+      path: "test/sample_app_web/live/page_live_test.exs",
+      command: "mix test test/sample_app_web/live/page_live_test.exs",
+    });
+    expect(migrations?.contextFiles.map((file) => file.path)).toEqual([
+      "mix.exs",
+      "lib/sample_app/repo.ex",
+    ]);
+  });
+
+  it("does not map generated Mix dependency C files", async () => {
+    const root = await fixtureRoot("clawpatch-elixir-deps-skip-");
+    await writeFixture(
+      root,
+      "mix.exs",
+      'defmodule SampleApp.MixProject do\n  use Mix.Project\n  def project, do: [app: :sample_app, version: "0.1.0"]\nend\n',
+    );
+    await writeFixture(root, "lib/sample_app/core.ex", "defmodule SampleApp.Core do\nend\n");
+    await writeFixture(root, "deps/native/src/noise.c", "int main(void) { return 0; }\n");
+    await writeFixture(
+      root,
+      "apps/web/deps/native/src/nested_noise.c",
+      "int main(void) { return 0; }\n",
+    );
+
+    const result = await mapFeatures(root, await detectProject(root), []);
+
+    expect(result.features.map((feature) => feature.entrypoints[0]?.path)).toEqual(
+      expect.not.arrayContaining([
+        "deps/native/src/noise.c",
+        "apps/web/deps/native/src/nested_noise.c",
+      ]),
+    );
+  });
+
+  it("still maps non-Elixir source directories named deps", async () => {
+    const root = await fixtureRoot("clawpatch-deps-source-dir-");
+    await writeFixture(root, "package.json", JSON.stringify({ name: "deps-source" }));
+    await writeFixture(root, "lib/deps/client.ts", "export function client() { return true; }\n");
+
+    const result = await mapFeatures(root, await detectProject(root), []);
+    const owned = result.features.flatMap((feature) => feature.ownedFiles.map((file) => file.path));
+
+    expect(owned).toContain("lib/deps/client.ts");
+  });
+
+  it("maps C# .NET projects, ASP.NET endpoints, and associated test projects", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-map-");
+    await writeFixture(
+      root,
+      "TodoApp.sln",
+      `Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{00000000-0000-0000-0000-000000000000}") = "Todo.Api", "src\\Todo.Api\\Todo.Api.csproj", "{11111111-1111-1111-1111-111111111111}"
+EndProject
+Project("{00000000-0000-0000-0000-000000000000}") = "Todo.Api.Tests", "tests\\Todo.Api.Tests\\Todo.Api.Tests.csproj", "{22222222-2222-2222-2222-222222222222}"
+EndProject
+`,
+    );
+    await writeFixture(root, "global.json", '{ "sdk": { "version": "9.0.100" } }\n');
+    await writeFixture(root, "Directory.Build.props", "<Project />\n");
+    await writeFixture(
+      root,
+      "src/Todo.Api/Todo.Api.csproj",
+      `<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+  </PropertyGroup>
+</Project>
+`,
+    );
+    await writeFixture(
+      root,
+      "src/Todo.Api/Program.cs",
+      `var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+app.MapGet("/health", () => Results.Ok());
+app.MapGet("/todos", () => Results.Ok());
+app.MapPost("/todos", (Todo todo) => Results.Created($"/todos/{todo.Id}", todo));
+app.MapFallbackToFile("index.html");
+app.MapFallbackToFile("/{*path:nonfile}", "index.html");
+app.Run();
+public sealed record Todo(string Id);
+`,
+    );
+    await writeFixture(
+      root,
+      "src/Todo.Api/Controllers/TodoController.cs",
+      `using Microsoft.AspNetCore.Mvc;
+
+[ApiController]
+[Route("api/[controller]")]
+public sealed class TodoController : ControllerBase
+{
+    [HttpGet("{id}")]
+    public IActionResult Get(string id) => Ok(id);
+
+    [HttpGet(Name = "ListTodos")]
+    public IActionResult List() => Ok();
+
+    [HttpPost]
+    public IActionResult Create() => Created();
+}
+`,
+    );
+    await writeFixture(
+      root,
+      "src/Todo.Api/Services/TodoService.cs",
+      "public sealed class TodoService {}\n",
+    );
+    await writeFixture(
+      root,
+      "src/Todo.Api/Generated/TodoClient.g.cs",
+      "public sealed class GeneratedClient {}\n",
+    );
+    await writeFixture(
+      root,
+      "src/Todo.Api/obj/Debug/net9.0/Todo.Api.AssemblyInfo.cs",
+      "public sealed class AssemblyInfo {}\n",
+    );
+    await writeFixture(
+      root,
+      "tests/Todo.Api.Tests/Todo.Api.Tests.csproj",
+      `<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <ProjectReference Include="..\\..\\src\\Todo.Api\\Todo.Api.csproj" />
+  </ItemGroup>
+</Project>
+`,
+    );
+    await writeFixture(
+      root,
+      "tests/Todo.Api.Tests/TodoControllerTests.cs",
+      "public sealed class TodoControllerTests {}\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const titles = result.features.map((feature) => feature.title);
+    const health = result.features.find(
+      (feature) => feature.title === "ASP.NET endpoint GET /health",
+    );
+    const controller = result.features.find(
+      (feature) => feature.title === "ASP.NET controller TodoController",
+    );
+    const ownedFiles = new Set(
+      result.features.flatMap((feature) => feature.ownedFiles.map((file) => file.path)),
+    );
+
+    expect(project.detected.languages).toContain("csharp");
+    expect(project.detected.packageManagers).toContain("dotnet");
+    expect(project.detected.frameworks).toEqual(
+      expect.arrayContaining(["aspnetcore", "dotnet-test"]),
+    );
+    expect(project.detected.commands).toMatchObject({
+      typecheck: "dotnet build TodoApp.sln",
+      test: "dotnet test TodoApp.sln",
+    });
+    expect(titles).toContain(".NET project Todo.Api");
+    expect(titles).toContain(".NET project Todo.Api.Tests");
+    expect(titles).toContain("C# test suite Todo.Api.Tests");
+    expect(titles).toContain("ASP.NET endpoint GET /health");
+    expect(titles).toContain("ASP.NET endpoint GET /todos");
+    expect(titles).toContain("ASP.NET endpoint POST /todos");
+    expect(titles).toContain("ASP.NET endpoint FALLBACKTOFILE /{*path:nonfile}");
+    expect(titles).not.toContain("ASP.NET endpoint FALLBACKTOFILE /index.html");
+    expect(titles).toContain("ASP.NET controller TodoController");
+    expect(titles).toContain("C# source src/Todo.Api");
+    expect(titles).toContain("Project config global.json");
+    expect(health?.tests).toEqual([
+      {
+        path: "tests/Todo.Api.Tests/TodoControllerTests.cs",
+        command: "dotnet test tests/Todo.Api.Tests/Todo.Api.Tests.csproj",
+      },
+    ]);
+    expect(health?.contextFiles).toContainEqual({
+      path: "tests/Todo.Api.Tests/TodoControllerTests.cs",
+      reason: "associated test",
+    });
+    expect(controller?.summary).not.toContain("ListTodos");
+    expect(ownedFiles).not.toContain("src/Todo.Api/Generated/TodoClient.g.cs");
+    expect(ownedFiles).not.toContain("src/Todo.Api/obj/Debug/net9.0/Todo.Api.AssemblyInfo.cs");
+  });
+
+  it("does not map NuGet.config into review context", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-nuget-config-");
+    await writeFixture(
+      root,
+      "NuGet.config",
+      "<packageSourceCredentials>secret</packageSourceCredentials>\n",
+    );
+    await writeFixture(root, "App.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(root, "Program.cs", "public sealed class Program {}\n");
+
+    const result = await mapFeatures(root, await detectProject(root), []);
+    const referencedPaths = result.features.flatMap((feature) => [
+      feature.entrypoints[0]?.path,
+      ...feature.ownedFiles.map((file) => file.path),
+      ...feature.contextFiles.map((file) => file.path),
+      ...feature.tests.map((test) => test.path),
+    ]);
+
+    expect(result.features.map((feature) => feature.title)).not.toContain(
+      "Project config NuGet.config",
+    );
+    expect(referencedPaths).not.toContain("NuGet.config");
+  });
+
+  it("preserves ASP.NET minimal API route group prefixes", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-map-group-");
+    await writeFixture(
+      root,
+      "src/Grouped.Api/Grouped.Api.csproj",
+      `<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+  </PropertyGroup>
+</Project>
+`,
+    );
+    await writeFixture(
+      root,
+      "src/Grouped.Api/Program.cs",
+      `var builder = WebApplication.CreateBuilder(args);
+var app = builder.Build();
+app.MapGroup("/v1").MapGet("/users", () => Results.Ok());
+app.MapGroup("/v2").MapGet("/users", () => Results.Ok());
+var admin = app.MapGroup("/admin");
+admin.MapGet("/users", () => Results.Ok());
+var reports = admin.MapGroup("/reports");
+reports.MapPost("/{id}", () => Results.Ok());
+RouteGroupBuilder ApiGroup(WebApplication app) =>
+    app.MapGroup("/api")
+        .WithTags("api");
+var helperGroup = ApiGroup(app);
+helperGroup.MapDelete("/teams/{id}", () => Results.Ok());
+app.Run();
+`,
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const endpointTitles = result.features
+      .map((feature) => feature.title)
+      .filter((title) => title.startsWith("ASP.NET endpoint "));
+
+    expect(endpointTitles).toEqual(
+      expect.arrayContaining([
+        "ASP.NET endpoint GET /v1/users",
+        "ASP.NET endpoint GET /v2/users",
+        "ASP.NET endpoint GET /admin/users",
+        "ASP.NET endpoint POST /admin/reports/{id}",
+        "ASP.NET endpoint DELETE /api/teams/{id}",
+      ]),
+    );
+    expect(endpointTitles).not.toContain("ASP.NET endpoint GET /users");
+  });
+
+  it("keeps .NET validation commands conservative for ambiguous workspaces", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-ambiguous-");
+    await writeFixture(root, "First.sln", "");
+    await writeFixture(root, "Second.sln", "");
+    await writeFixture(root, "src/App/App.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(root, "src/Lib/Lib.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(
+      root,
+      "tests/App.Tests/App.Tests.csproj",
+      `<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+  </ItemGroup>
+</Project>
+`,
+    );
+
+    const project = await detectProject(root);
+
+    expect(project.detected.languages).toContain("csharp");
+    expect(project.detected.packageManagers).toContain("dotnet");
+    expect(project.detected.commands.typecheck).toBeNull();
+    expect(project.detected.commands.test).toBe("dotnet test tests/App.Tests/App.Tests.csproj");
+  });
+
+  it("targets a lone .NET test project when the build solution omits it", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-solution-missing-test-");
+    await writeFixture(
+      root,
+      "App.sln",
+      `Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{00000000-0000-0000-0000-000000000000}") = "App", "src\\App\\App.csproj", "{11111111-1111-1111-1111-111111111111}"
+EndProject
+`,
+    );
+    await writeFixture(root, "src/App/App.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(
+      root,
+      "tests/App.Tests/App.Tests.csproj",
+      `<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+  </ItemGroup>
+</Project>
+`,
+    );
+
+    const project = await detectProject(root);
+
+    expect(project.detected.commands.typecheck).toBe("dotnet build App.sln");
+    expect(project.detected.commands.test).toBe("dotnet test tests/App.Tests/App.Tests.csproj");
+  });
+
+  it("does not build a root .NET solution that omits non-test projects", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-solution-missing-project-");
+    await writeFixture(
+      root,
+      "App.sln",
+      `Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{00000000-0000-0000-0000-000000000000}") = "App", "src\\App\\App.csproj", "{11111111-1111-1111-1111-111111111111}"
+EndProject
+`,
+    );
+    await writeFixture(root, "src/App/App.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(root, "src/Lib/Lib.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+
+    const project = await detectProject(root);
+
+    expect(project.detected.commands.typecheck).toBeNull();
+  });
+
+  it("does not build a .NET solution with stale project entries", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-solution-stale-project-");
+    await writeFixture(
+      root,
+      "App.sln",
+      `Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{00000000-0000-0000-0000-000000000000}") = "App", "src\\App\\App.csproj", "{11111111-1111-1111-1111-111111111111}"
+EndProject
+Project("{00000000-0000-0000-0000-000000000000}") = "Lib", "src\\Lib\\Lib.csproj", "{22222222-2222-2222-2222-222222222222}"
+EndProject
+Project("{00000000-0000-0000-0000-000000000000}") = "Missing", "src\\Missing\\Missing.csproj", "{33333333-3333-3333-3333-333333333333}"
+EndProject
+`,
+    );
+    await writeFixture(root, "src/App/App.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(root, "src/Lib/Lib.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+
+    const project = await detectProject(root);
+
+    expect(project.detected.commands.typecheck).toBeNull();
+  });
+
+  it("does not build a .NET solution with out-of-root project entries", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-solution-outside-project-");
+    await writeFixture(
+      root,
+      "App.sln",
+      `Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{00000000-0000-0000-0000-000000000000}") = "App", "src\\App\\App.csproj", "{11111111-1111-1111-1111-111111111111}"
+EndProject
+Project("{00000000-0000-0000-0000-000000000000}") = "Lib", "src\\Lib\\Lib.csproj", "{22222222-2222-2222-2222-222222222222}"
+EndProject
+Project("{00000000-0000-0000-0000-000000000000}") = "Outside", "..\\Outside\\Outside.csproj", "{33333333-3333-3333-3333-333333333333}"
+EndProject
+`,
+    );
+    await writeFixture(root, "src/App/App.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(root, "src/Lib/Lib.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+
+    const project = await detectProject(root);
+
+    expect(project.detected.commands.typecheck).toBeNull();
+  });
+
+  it("ignores commented .NET slnx project entries for validation targets", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-slnx-commented-project-");
+    await writeFixture(
+      root,
+      "App.slnx",
+      `<Solution>
+  <Project Path="src/App/App.csproj" />
+  <!-- <Project Path="src/Lib/Lib.csproj" /> -->
+</Solution>
+`,
+    );
+    await writeFixture(root, "src/App/App.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(root, "src/Lib/Lib.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const libProject = result.features.find((feature) => feature.title === ".NET project Lib");
+
+    expect(project.detected.commands.typecheck).toBeNull();
+    expect(libProject?.contextFiles).not.toContainEqual({
+      path: "App.slnx",
+      reason: "solution context",
+    });
+  });
+
+  it("prefers a root .NET project over an unrelated nested solution", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-root-project-nested-solution-");
+    await writeFixture(root, "App.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(root, "Program.cs", "public sealed class Program {}\n");
+    await writeFixture(
+      root,
+      "tools/Tool.sln",
+      `Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{00000000-0000-0000-0000-000000000000}") = "Tool", "Tool.csproj", "{11111111-1111-1111-1111-111111111111}"
+EndProject
+`,
+    );
+    await writeFixture(root, "tools/Tool.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+
+    const project = await detectProject(root);
+
+    expect(project.detected.commands.typecheck).toBe("dotnet build App.csproj");
+  });
+
+  it("ignores .NET test metadata inside XML comments", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-commented-test-metadata-");
+    await writeFixture(
+      root,
+      "src/App/App.csproj",
+      `<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+  <Project Sdk="Microsoft.NET.Sdk.Web">
+  <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+  <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.0" />
+  <Using Include="BackgroundService" />
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+  </ItemGroup>
+  -->
+</Project>
+`,
+    );
+    await writeFixture(root, "src/App/Program.cs", "public sealed class Program {}\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const appProject = result.features.find((feature) => feature.title === ".NET project App");
+    const titles = result.features.map((feature) => feature.title);
+
+    expect(project.detected.frameworks).not.toContain("dotnet-test");
+    expect(project.detected.frameworks).not.toContain("aspnetcore");
+    expect(project.detected.commands).toMatchObject({
+      typecheck: "dotnet build src/App/App.csproj",
+      test: null,
+    });
+    expect(titles).toContain(".NET project App");
+    expect(titles).toContain("C# source src/App");
+    expect(titles).not.toContain("C# test suite App");
+    expect(appProject?.kind).toBe("library");
+    expect(appProject?.tags).not.toContain("aspnetcore");
+    expect(appProject?.tags).not.toContain("worker");
+  });
+
+  it("does not treat Program.cs as ASP.NET evidence for ordinary C# projects", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-console-program-controller-");
+    await writeFixture(root, "src/App/App.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(root, "src/App/Program.cs", 'Console.WriteLine("hello");\n');
+    await writeFixture(
+      root,
+      "src/App/Domain/MotorController.cs",
+      "public sealed class MotorController {}\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const appSource = result.features.find((feature) => feature.title === "C# source src/App");
+    const titles = result.features.map((feature) => feature.title);
+
+    expect(project.detected.frameworks).not.toContain("aspnetcore");
+    expect(titles).not.toContain("ASP.NET controller MotorController");
+    expect(appSource?.ownedFiles).toEqual(
+      expect.arrayContaining([
+        { path: "src/App/Program.cs", reason: "C# source group src/App" },
+        { path: "src/App/Domain/MotorController.cs", reason: "C# source group src/App" },
+      ]),
+    );
+  });
+
+  it("discovers first-party .NET projects under packages workspaces", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-packages-workspace-");
+    await writeFixture(root, "packages/Foo/Foo.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(root, "packages/Foo/Service.cs", "public sealed class Service {}\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const titles = result.features.map((feature) => feature.title);
+
+    expect(project.detected.languages).toContain("csharp");
+    expect(project.detected.packageManagers).toContain("dotnet");
+    expect(project.detected.commands).toMatchObject({
+      typecheck: "dotnet build packages/Foo/Foo.csproj",
+      test: null,
+    });
+    expect(titles).toContain(".NET project Foo");
+    expect(titles).toContain("C# source packages/Foo");
+  });
+
+  it("targets the discovered .NET test project when the build target is an app project", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-root-app-nested-test-");
+    await writeFixture(root, "My App.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(
+      root,
+      "tests/My App.Tests/My App.Tests.csproj",
+      `<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+  </ItemGroup>
+</Project>
+`,
+    );
+
+    const project = await detectProject(root);
+
+    expect(project.detected.commands.typecheck).toBe('dotnet build "My App.csproj"');
+    expect(project.detected.commands.test).toBe(
+      'dotnet test "tests/My App.Tests/My App.Tests.csproj"',
+    );
+  });
+
+  it("detects TUnit projects without Microsoft.NET.Test.Sdk as .NET test projects", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-tunit-test-");
+    await writeFixture(root, "src/App/App.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(root, "src/App/Program.cs", "public sealed class Program {}\n");
+    await writeFixture(
+      root,
+      "tests/App.TUnit/App.TUnit.csproj",
+      `<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="TUnit" Version="1.13.11" />
+    <ProjectReference Include="..\\..\\src\\App\\App.csproj" />
+  </ItemGroup>
+</Project>
+`,
+    );
+    await writeFixture(
+      root,
+      "tests/App.TUnit/ProgramTests.cs",
+      "public sealed class ProgramTests {}\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const testSuite = result.features.find(
+      (feature) => feature.title === "C# test suite App.TUnit",
+    );
+    const appSource = result.features.find((feature) => feature.title === "C# source src/App");
+
+    expect(project.detected.frameworks).toContain("dotnet-test");
+    expect(project.detected.commands.test).toBe("dotnet test tests/App.TUnit/App.TUnit.csproj");
+    expect(testSuite?.tests).toEqual([
+      {
+        path: "tests/App.TUnit/ProgramTests.cs",
+        command: "dotnet test tests/App.TUnit/App.TUnit.csproj",
+      },
+    ]);
+    expect(appSource?.tests).toEqual([
+      {
+        path: "tests/App.TUnit/ProgramTests.cs",
+        command: "dotnet test tests/App.TUnit/App.TUnit.csproj",
+      },
+    ]);
+  });
+
+  it("keeps dotnet test commands for test projects without C# source files", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-empty-test-group-");
+    await writeFixture(root, "src/App/App.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(root, "src/App/Program.cs", "public sealed class Program {}\n");
+    await writeFixture(
+      root,
+      "tests/App.Tests/App.Tests.fsproj",
+      `<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <ProjectReference Include="..\\..\\src\\App\\App.csproj" />
+  </ItemGroup>
+</Project>
+`,
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const testSuite = result.features.find(
+      (feature) => feature.title === "F# test suite App.Tests",
+    );
+    const appSource = result.features.find((feature) => feature.title === "C# source src/App");
+
+    expect(testSuite?.tests).toEqual([
+      {
+        path: "tests/App.Tests/App.Tests.fsproj",
+        command: "dotnet test tests/App.Tests/App.Tests.fsproj",
+      },
+    ]);
+    expect(appSource?.tests).toEqual([
+      {
+        path: "tests/App.Tests/App.Tests.fsproj",
+        command: "dotnet test tests/App.Tests/App.Tests.fsproj",
+      },
+    ]);
+  });
+
+  it("maps F# and Visual Basic source groups with solution context", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-fsharp-vb-source-");
+    await writeFixture(
+      root,
+      "solutions/App.sln",
+      `Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{00000000-0000-0000-0000-000000000000}") = "FsLib", "..\\src\\FsLib\\FsLib.fsproj", "{11111111-1111-1111-1111-111111111111}"
+EndProject
+Project("{00000000-0000-0000-0000-000000000000}") = "FsLib.Tests", "..\\tests\\FsLib.Tests\\FsLib.Tests.fsproj", "{22222222-2222-2222-2222-222222222222}"
+EndProject
+`,
+    );
+    await writeFixture(
+      root,
+      "solutions/App.slnx",
+      '<Solution><Project Path="../src/VbApp/VbApp.vbproj" /></Solution>\n',
+    );
+    await writeFixture(root, "src/FsLib/FsLib.fsproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(root, "src/FsLib/Library.fs", 'module Library\nlet hello = "world"\n');
+    await writeFixture(
+      root,
+      "tests/FsLib.Tests/FsLib.Tests.fsproj",
+      `<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <ProjectReference Include="..\\..\\src\\FsLib\\FsLib.fsproj" />
+  </ItemGroup>
+</Project>
+`,
+    );
+    await writeFixture(root, "tests/FsLib.Tests/Tests.fs", "module Tests\n");
+    await writeFixture(root, "src/VbApp/VbApp.vbproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(root, "src/VbApp/Program.vb", "Module Program\nEnd Module\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const fsProject = result.features.find((feature) => feature.title === ".NET project FsLib");
+    const fsSource = result.features.find((feature) => feature.title === "F# source src/FsLib");
+    const vbProject = result.features.find((feature) => feature.title === ".NET project VbApp");
+    const vbSource = result.features.find(
+      (feature) => feature.title === "Visual Basic source src/VbApp",
+    );
+
+    expect(project.detected.languages).toEqual(expect.arrayContaining(["fsharp", "visual-basic"]));
+    expect(fsProject?.contextFiles).toContainEqual({
+      path: "solutions/App.sln",
+      reason: "solution context",
+    });
+    expect(vbProject?.contextFiles).toContainEqual({
+      path: "solutions/App.slnx",
+      reason: "solution context",
+    });
+    expect(fsSource?.ownedFiles).toEqual([
+      { path: "src/FsLib/Library.fs", reason: "F# source group src/FsLib" },
+    ]);
+    expect(fsSource?.tests).toEqual([
+      {
+        path: "tests/FsLib.Tests/Tests.fs",
+        command: "dotnet test tests/FsLib.Tests/FsLib.Tests.fsproj",
+      },
+    ]);
+    expect(vbSource?.ownedFiles).toEqual([
+      { path: "src/VbApp/Program.vb", reason: "Visual Basic source group src/VbApp" },
+    ]);
+  });
+
+  it("excludes nested .NET project roots from parent C# source groups", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-nested-project-root-");
+    await writeFixture(root, "src/App/App.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(root, "src/App/Program.cs", "public sealed class Program {}\n");
+    await writeFixture(
+      root,
+      "src/App/tests/App.Tests/App.Tests.csproj",
+      `<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <ProjectReference Include="..\\..\\App.csproj" />
+  </ItemGroup>
+</Project>
+`,
+    );
+    await writeFixture(
+      root,
+      "src/App/tests/App.Tests/ProgramTests.cs",
+      "public sealed class ProgramTests {}\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const appSource = result.features.find((feature) => feature.title === "C# source src/App");
+    const testSuite = result.features.find(
+      (feature) => feature.title === "C# test suite App.Tests",
+    );
+
+    expect(appSource?.ownedFiles).toEqual([
+      { path: "src/App/Program.cs", reason: "C# source group src/App" },
+    ]);
+    expect(testSuite?.ownedFiles).toEqual([
+      {
+        path: "src/App/tests/App.Tests/ProgramTests.cs",
+        reason: "C# test group src/App/tests/App.Tests",
+      },
+    ]);
+  });
+
+  it("does not report dotnet as a package manager for manifestless C# source", async () => {
+    const root = await fixtureRoot("clawpatch-csharp-source-only-");
+    await writeFixture(root, "src/Helpers/Thing.cs", "public sealed class Thing {}\n");
+    await writeFixture(root, "src/Helpers/Thing.g.cs", "public sealed class GeneratedThing {}\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const source = result.features.find((feature) => feature.title === "C# source src");
+    const titles = result.features.map((feature) => feature.title);
+
+    expect(project.detected.languages).toContain("csharp");
+    expect(project.detected.packageManagers).not.toContain("dotnet");
+    expect(project.detected.commands).toEqual({
+      typecheck: null,
+      lint: null,
+      format: null,
+      test: null,
+    });
+    expect(titles).not.toContain(".NET project Thing");
+    expect(source?.ownedFiles).toEqual([
+      { path: "src/Helpers/Thing.cs", reason: "C# source group src" },
+    ]);
+  });
+
+  it("keeps Ruby validation defaults when a Ruby project has source-only C#", async () => {
+    const root = await fixtureRoot("clawpatch-ruby-csharp-source-only-");
+    await writeFixture(
+      root,
+      "Gemfile",
+      "source 'https://rubygems.org'\ngem 'rspec'\ngem 'rubocop'\n",
+    );
+    await writeFixture(root, "lib/fixture.rb", "module Fixture\nend\n");
+    await writeFixture(root, "src/Helpers/Thing.cs", "public sealed class Thing {}\n");
+
+    const project = await detectProject(root);
+
+    expect(project.detected.languages).toEqual(expect.arrayContaining(["ruby", "csharp"]));
+    expect(project.detected.packageManagers).toContain("bundler");
+    expect(project.detected.packageManagers).not.toContain("dotnet");
+    expect(project.detected.commands).toMatchObject({
+      lint: "bundle exec rubocop",
+      test: "bundle exec rspec",
+    });
+  });
+
+  it("skips fixture and testdata .NET projects", async () => {
+    const root = await fixtureRoot("clawpatch-dotnet-samples-");
+    await writeFixture(root, "src/App/App.csproj", '<Project Sdk="Microsoft.NET.Sdk" />\n');
+    await writeFixture(root, "src/App/Service.cs", "public sealed class Service {}\n");
+    await writeFixture(
+      root,
+      "fixtures/Sample/Sample.csproj",
+      '<Project Sdk="Microsoft.NET.Sdk" />\n',
+    );
+    await writeFixture(root, "fixtures/Sample/Sample.cs", "public sealed class Sample {}\n");
+    await writeFixture(
+      root,
+      "testdata/Example/Example.csproj",
+      '<Project Sdk="Microsoft.NET.Sdk" />\n',
+    );
+    await writeFixture(root, "testdata/Example/Example.cs", "public sealed class Example {}\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const titles = result.features.map((feature) => feature.title);
+    const ownedFiles = result.features.flatMap((feature) =>
+      feature.ownedFiles.map((file) => file.path),
+    );
+
+    expect(titles).toContain(".NET project App");
+    expect(titles).not.toContain(".NET project Sample");
+    expect(titles).not.toContain(".NET project Example");
+    expect(ownedFiles).not.toContain("fixtures/Sample/Sample.cs");
+    expect(ownedFiles).not.toContain("testdata/Example/Example.cs");
   });
 });
