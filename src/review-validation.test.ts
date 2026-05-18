@@ -21,6 +21,23 @@ describe("validateReviewOutput", () => {
     ).resolves.toMatchObject({ findings: [{ title: "Bug" }] });
   });
 
+  it("does not reject absolute inspected file metadata", async () => {
+    const root = await fixtureRoot("clawpatch-review-validation-inspected-");
+    await writeFixture(root, "src/index.ts", "const value = 'TODO_BUG';\n");
+    const providerOutput = output("src/index.ts");
+    providerOutput.inspected.files = [`${root}/src/index.ts`];
+
+    await expect(
+      validateReviewOutput(
+        root,
+        feature("src/index.ts"),
+        defaultConfig(),
+        manifest("src/index.ts"),
+        providerOutput,
+      ),
+    ).resolves.toMatchObject({ findings: [{ title: "Bug" }] });
+  });
+
   it("rejects evidence for files that were not included in review context", async () => {
     const root = await fixtureRoot("clawpatch-review-validation-path-");
     await writeFixture(root, "src/index.ts", "const value = 'TODO_BUG';\n");

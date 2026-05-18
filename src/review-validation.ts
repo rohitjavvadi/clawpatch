@@ -14,9 +14,6 @@ export async function validateReviewOutput(
   const included = includedReviewPaths(feature, config);
   const promptFiles = new Map(manifest.includedFiles.map((file) => [normalizePath(file.path), file]));
   const cache = new Map<string, Promise<string>>();
-  for (const file of output.inspected.files) {
-    assertSafePath(file, "inspected file");
-  }
   const findings = output.findings;
   for (const finding of findings) {
     if (finding.evidence.length === 0) {

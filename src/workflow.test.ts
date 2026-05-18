@@ -488,6 +488,51 @@ describe("workflow", () => {
     }
   });
 
+  it("does not count stale report findings as CI review findings", async () => {
+    const root = await fixtureRoot("clawpatch-ci-stale-findings-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "ci-stale", bin: { app: "src/index.ts" } }),
+    );
+    await writeFixture(root, "src/index.ts", "export const value = 'TODO_BUG';\n");
+    await initGit(root);
+    await checkCommand(root, "git add package.json src/index.ts");
+    await checkCommand(root, 'git -c commit.gpgsign=false commit -q -m "initial"');
+    const summaryPath = join(root, "summary.md");
+    const previousProvider = process.env["CLAWPATCH_PROVIDER"];
+    const previousSummary = process.env["GITHUB_STEP_SUMMARY"];
+    process.env["CLAWPATCH_PROVIDER"] = "mock";
+    process.env["GITHUB_STEP_SUMMARY"] = summaryPath;
+    try {
+      const context = await makeContext(testOptions(root));
+      await initCommand(context, {});
+      await mapCommand(context);
+      await reviewCommand(context, { limit: "1" });
+
+      const result = await ciCommand(context, { since: "HEAD", limit: "10" });
+      const summary = await readFile(summaryPath, "utf8");
+
+      expect(result).toMatchObject({
+        findings: 0,
+        reportFindings: 1,
+      });
+      expect(summary).toContain("- findings: 0");
+      expect(summary).toContain("- report findings: 1");
+    } finally {
+      if (previousProvider === undefined) {
+        delete process.env["CLAWPATCH_PROVIDER"];
+      } else {
+        process.env["CLAWPATCH_PROVIDER"] = previousProvider;
+      }
+      if (previousSummary === undefined) {
+        delete process.env["GITHUB_STEP_SUMMARY"];
+      } else {
+        process.env["GITHUB_STEP_SUMMARY"] = previousSummary;
+      }
+    }
+  });
+
   it.runIf(process.platform !== "win32")(
     "reviews end-to-end when codex writes fenced JSON with trailing prose",
     async () => {

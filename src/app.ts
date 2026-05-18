@@ -248,7 +248,8 @@ export async function ciCommand(
     output?: string | null;
     markdown?: string;
   };
-  const summary = renderCiSummary({ initialized, mapped, reviewed, report });
+  const reviewFindings = numberField(reviewed, "findings") ?? 0;
+  const summary = renderCiSummary({ initialized, mapped, reviewed, reviewFindings, report });
   const githubStepSummary = process.env["GITHUB_STEP_SUMMARY"];
   if (githubStepSummary !== undefined && githubStepSummary.length > 0) {
     await appendFile(githubStepSummary, summary, "utf8");
@@ -257,7 +258,8 @@ export async function ciCommand(
     initialized,
     mapped: numberField(mapped, "features"),
     reviewed: numberField(reviewed, "reviewed"),
-    findings: numberField(reviewed, "findings") ?? report.findings ?? 0,
+    findings: reviewFindings,
+    reportFindings: report.findings ?? 0,
     report: report.output ?? null,
     githubStepSummary: githubStepSummary ?? null,
     next: stringField(reviewed, "next") ?? "clawpatch status",
@@ -1260,6 +1262,7 @@ function renderCiSummary(input: {
   initialized: boolean;
   mapped: unknown;
   reviewed: unknown;
+  reviewFindings: number;
   report: { findings?: number; output?: string | null };
 }): string {
   const lines = [
@@ -1268,8 +1271,11 @@ function renderCiSummary(input: {
     `- initialized: ${input.initialized ? "yes" : "no"}`,
     `- mapped features: ${numberField(input.mapped, "features") ?? "unknown"}`,
     `- reviewed features: ${numberField(input.reviewed, "reviewed") ?? 0}`,
-    `- findings: ${numberField(input.reviewed, "findings") ?? input.report.findings ?? 0}`,
+    `- findings: ${input.reviewFindings}`,
   ];
+  if (input.report.findings !== undefined && input.report.findings !== input.reviewFindings) {
+    lines.push(`- report findings: ${input.report.findings}`);
+  }
   if (input.report.output !== undefined && input.report.output !== null) {
     lines.push(`- report: ${input.report.output}`);
   }
