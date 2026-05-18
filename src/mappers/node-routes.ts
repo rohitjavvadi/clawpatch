@@ -390,7 +390,7 @@ function addExpressRouterRequireNames(names: Set<string>, clause: string): void 
 function expressRouterAssignmentNames(source: string): Set<string> {
   const names = new Set<string>();
   const pattern =
-    /\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:express\s*\.\s*Router|require\s*\(\s*["']express["']\s*\)\s*\.\s*Router)\b/gu;
+    /\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*:\s*[^=;]+)?\s*=\s*(?:express\s*\.\s*Router|require\s*\(\s*["']express["']\s*\)\s*\.\s*Router)\b/gu;
   pattern.lastIndex = 0;
   for (const match of source.matchAll(pattern)) {
     if (isInsideCommentOrString(source, match.index ?? 0)) {
