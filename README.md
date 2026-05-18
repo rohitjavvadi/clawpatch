@@ -52,6 +52,9 @@ validation commands and records a patch attempt under `.clawpatch/`.
   `lint`, `typecheck`, `format`
 - Node/TypeScript workspace packages under `apps/*`, `packages/*`, and package
   workspace patterns
+- package-less Node/TypeScript app roots under monorepo folders such as
+  `apps/*` and `packages/*` when source or positive framework signals are
+  present
 - generic extension/plugin packages under workspace roots such as `extensions/*`
   and `plugins/*`, including package metadata, source, docs, and nearby tests
 - semantic Node source groups for large packages, including runtime, commands,

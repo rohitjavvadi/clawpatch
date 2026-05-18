@@ -59,6 +59,7 @@ stderr so pipes stay parseable.
 - [Validation](validation.md)
 - [Providers](providers.md)
 - [Safety](safety.md)
+- [Release Prep](release-prep.md)
 - [E2E with Gitcrawl](e2e-gitcrawl.md)
 - [Initialization](initialization.md)
 

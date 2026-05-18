@@ -164,13 +164,17 @@ describe("mapFeatures", () => {
     await writeFixture(
       root,
       "package.json",
-      JSON.stringify({ name: "workspace-root", workspaces: ["apps/*"] }, null, 2),
+      JSON.stringify(
+        { name: "workspace-root", workspaces: ["apps/*"], dependencies: { next: "1.0.0" } },
+        null,
+        2,
+      ),
     );
     await writeFixture(root, "yarn.lock", "");
     await writeFixture(
       root,
       "apps/web/package.json",
-      JSON.stringify({ name: "web", dependencies: { next: "1.0.0" } }, null, 2),
+      JSON.stringify({ name: "web", scripts: { build: "next build" } }, null, 2),
     );
     await writeFixture(
       root,
@@ -204,7 +208,7 @@ describe("mapFeatures", () => {
     await writeFixture(
       root,
       "apps/admin/package.json",
-      JSON.stringify({ name: "admin", dependencies: { next: "1.0.0" } }, null, 2),
+      JSON.stringify({ name: "admin", scripts: { dev: "next dev" } }, null, 2),
     );
     await writeFixture(
       root,
@@ -244,9 +248,73 @@ describe("mapFeatures", () => {
     expect(adminRoute?.tests.every((test) => test.command === "yarn nx test admin")).toBe(true);
   });
 
+  it("maps hoisted Next routes for workspace packages with Next scripts", async () => {
+    const root = await fixtureRoot("clawpatch-map-next-hoisted-package-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify(
+        { name: "workspace-root", workspaces: ["apps/*"], dependencies: { next: "1.0.0" } },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "apps/site/package.json",
+      JSON.stringify({ name: "site", scripts: { dev: "next dev" } }, null, 2),
+    );
+    await writeFixture(
+      root,
+      "apps/site/src/pages/about.tsx",
+      "export default function About() { return null; }\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.find((feature) => feature.title === "site route /about")?.entrypoints[0]
+        ?.path,
+    ).toBe("apps/site/src/pages/about.tsx");
+  });
+
+  it("does not treat package scripts without Next commands as hoisted Next projects", async () => {
+    const root = await fixtureRoot("clawpatch-map-next-hoisted-script-helper-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify(
+        { name: "workspace-root", workspaces: ["apps/*"], dependencies: { next: "1.0.0" } },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "apps/site/package.json",
+      JSON.stringify({ name: "site", scripts: { sitemap: "next-sitemap" } }, null, 2),
+    );
+    await writeFixture(
+      root,
+      "apps/site/src/pages/about.tsx",
+      "export default function About() { return null; }\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(result.features.map((feature) => feature.title)).toContain("Node source apps/site/src");
+    expect(result.features.some((feature) => feature.title === "site route /about")).toBe(false);
+  });
+
   it("maps Next routes inside Nx projects without package manifests", async () => {
     const root = await fixtureRoot("clawpatch-map-next-nx-no-package-");
-    await writeFixture(root, "package.json", JSON.stringify({ name: "workspace-root" }, null, 2));
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "workspace-root", dependencies: { next: "1.0.0" } }, null, 2),
+    );
     await writeFixture(root, "pnpm-lock.yaml", "");
     await writeFixture(
       root,
@@ -290,12 +358,436 @@ describe("mapFeatures", () => {
     );
   });
 
+  it("does not treat project.json pages folders as hoisted Next projects", async () => {
+    const root = await fixtureRoot("clawpatch-map-next-nx-pages-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "workspace-root", dependencies: { next: "1.0.0" } }, null, 2),
+    );
+    await writeFixture(
+      root,
+      "apps/admin/project.json",
+      JSON.stringify({ name: "admin", sourceRoot: "apps/admin/src" }, null, 2),
+    );
+    await writeFixture(
+      root,
+      "apps/admin/src/pages/settings.tsx",
+      "export default function Settings() { return null; }\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(result.features.map((feature) => feature.title)).toContain("Node source apps/admin/src");
+    expect(result.features.some((feature) => feature.title === "admin route /settings")).toBe(
+      false,
+    );
+  });
+
+  it("maps generic package-less app roots and Next routes", async () => {
+    const root = await fixtureRoot("clawpatch-map-generic-monorepo-root-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "workspace-root", dependencies: { next: "1.0.0" } }, null, 2),
+    );
+    await writeFixture(
+      root,
+      "apps/storefront/src/app/checkout/page.tsx",
+      "export default function Checkout() { return null; }\n",
+    );
+    await writeFixture(
+      root,
+      "apps/storefront/src/app/checkout/page.test.tsx",
+      "test('checkout', () => {});\n",
+    );
+    await writeFixture(root, "apps/worker/src/index.ts", "export const worker = true;\n");
+    await writeFixture(root, "apps/worker/src/index.test.ts", "test('worker', () => {});\n");
+    await writeFixture(root, "apps/api/server/index.ts", "export const api = true;\n");
+    await writeFixture(root, "apps/api/server/index.test.ts", "test('api', () => {});\n");
+    await writeFixture(
+      root,
+      "apps/admin/src/pages/About.tsx",
+      "export default function About() { return null; }\n",
+    );
+    await writeFixture(
+      root,
+      "apps/pagesapp/src/pages/about.tsx",
+      "export default function About() { return null; }\n",
+    );
+    await writeFixture(root, "apps/pagesapp/next.config.js", "module.exports = {};\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const route = result.features.find((feature) => feature.title === "storefront route /checkout");
+    const worker = result.features.find(
+      (feature) => feature.title === "Node source apps/worker/src",
+    );
+    const api = result.features.find((feature) => feature.title === "Node source apps/api/server");
+
+    expect(route?.entrypoints[0]?.path).toBe("apps/storefront/src/app/checkout/page.tsx");
+    expect(route?.tags).toEqual(
+      expect.arrayContaining(["project:storefront", "project-root:apps/storefront"]),
+    );
+    expect(route?.tests).toContainEqual({
+      path: "apps/storefront/src/app/checkout/page.test.tsx",
+      command: null,
+    });
+    expect(worker?.ownedFiles).toContainEqual({
+      path: "apps/worker/src/index.ts",
+      reason: "source group apps/worker/src",
+    });
+    expect(worker?.tags).toEqual(
+      expect.arrayContaining(["generic-project", "project:worker", "project-root:apps/worker"]),
+    );
+    expect(worker?.tests).toContainEqual({
+      path: "apps/worker/src/index.test.ts",
+      command: null,
+    });
+    expect(api?.ownedFiles).toContainEqual({
+      path: "apps/api/server/index.ts",
+      reason: "source group apps/api/server",
+    });
+    expect(api?.tests).toContainEqual({
+      path: "apps/api/server/index.test.ts",
+      command: null,
+    });
+    expect(result.features.some((feature) => feature.title === "admin route /About")).toBe(false);
+    expect(
+      result.features.find((feature) => feature.title === "pagesapp route /about")?.entrypoints[0]
+        ?.path,
+    ).toBe("apps/pagesapp/src/pages/about.tsx");
+  });
+
+  it("does not duplicate generic roots under package workspaces", async () => {
+    const root = await fixtureRoot("clawpatch-map-generic-nested-package-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "workspace-root", workspaces: ["apps/**"] }, null, 2),
+    );
+    await writeFixture(root, "apps/web/package.json", JSON.stringify({ name: "web" }, null, 2));
+    await writeFixture(root, "apps/web/src/lib/foo.ts", "export const foo = true;\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(result.features.map((feature) => feature.title)).toContain("Node source apps/web/src");
+    expect(
+      result.features.some((feature) => feature.tags.includes("project-root:apps/web/src")),
+    ).toBe(false);
+  });
+
+  it("keeps recursive package-less project discovery to the shallowest root", async () => {
+    const root = await fixtureRoot("clawpatch-map-generic-recursive-root-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "workspace-root", workspaces: ["apps/**"] }, null, 2),
+    );
+    await writeFixture(root, "apps/web/src/app/page.tsx", "export default function Page() {}\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(result.features.map((feature) => feature.title)).toContain("Node source apps/web/src");
+    expect(
+      result.features.some((feature) => feature.tags.includes("project-root:apps/web/src")),
+    ).toBe(false);
+  });
+
+  it("does not treat recursive workspace containers as package-less projects", async () => {
+    const root = await fixtureRoot("clawpatch-map-generic-recursive-container-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "workspace-root", workspaces: ["apps/**"] }, null, 2),
+    );
+    await writeFixture(root, "apps/api/server/index.ts", "export const api = true;\n");
+    await writeFixture(root, "apps/web/src/index.ts", "export const web = true;\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const titles = result.features.map((feature) => feature.title);
+
+    expect(titles).toContain("Node source apps/api/server");
+    expect(titles).toContain("Node source apps/web/src");
+    expect(result.features.some((feature) => feature.tags.includes("project-root:apps"))).toBe(
+      false,
+    );
+  });
+
+  it("maps package-less projects under bare recursive workspace globs", async () => {
+    const root = await fixtureRoot("clawpatch-map-generic-bare-recursive-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "workspace-root", workspaces: ["**"] }, null, 2),
+    );
+    await writeFixture(root, "services/api/src/index.ts", "export const api = true;\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const source = result.features.find(
+      (feature) => feature.title === "Node source services/api/src",
+    );
+
+    expect(source?.ownedFiles).toContainEqual({
+      path: "services/api/src/index.ts",
+      reason: "source group services/api/src",
+    });
+    expect(source?.tags).toEqual(
+      expect.arrayContaining(["project:api", "project-root:services/api"]),
+    );
+    expect(result.features.some((feature) => feature.tags.includes("project-root:services"))).toBe(
+      false,
+    );
+  });
+
+  it("maps API-only package-less Next apps", async () => {
+    const root = await fixtureRoot("clawpatch-map-generic-next-api-only-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify(
+        { name: "workspace-root", workspaces: ["apps/*"], dependencies: { next: "1.0.0" } },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "apps/app-api/app/api/hello/route.ts",
+      "export function GET() { return new Response('ok'); }\n",
+    );
+    await writeFixture(
+      root,
+      "apps/pages-api/pages/api/hello.ts",
+      "export default function handler() {}\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(
+      result.features.find((feature) => feature.title === "app-api route /api/hello")
+        ?.entrypoints[0]?.path,
+    ).toBe("apps/app-api/app/api/hello/route.ts");
+    expect(
+      result.features.find((feature) => feature.title === "pages-api route /api/hello")
+        ?.entrypoints[0]?.path,
+    ).toBe("apps/pages-api/pages/api/hello.ts");
+  });
+
+  it("maps package-less apps with nested server API sources", async () => {
+    const root = await fixtureRoot("clawpatch-map-generic-server-api-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "workspace-root", workspaces: ["apps/*"] }, null, 2),
+    );
+    await writeFixture(root, "apps/foo/server/api/index.ts", "export const api = true;\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const source = result.features.find(
+      (feature) => feature.title === "Node source apps/foo/server",
+    );
+
+    expect(source?.ownedFiles).toContainEqual({
+      path: "apps/foo/server/api/index.ts",
+      reason: "source group apps/foo/server",
+    });
+    expect(source?.tags).toEqual(expect.arrayContaining(["project:foo", "project-root:apps/foo"]));
+  });
+
+  it("does not let docs-only src folders suppress nested package-less projects", async () => {
+    const root = await fixtureRoot("clawpatch-map-generic-docs-only-src-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "workspace-root", workspaces: ["apps/**"] }, null, 2),
+    );
+    await writeFixture(root, "apps/foo/src/README.md", "# notes\n");
+    await writeFixture(root, "apps/foo/src/tsconfig.json", "{}\n");
+    await writeFixture(root, "apps/foo/bar/src/index.ts", "export const bar = true;\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const source = result.features.find(
+      (feature) => feature.title === "Node source apps/foo/bar/src",
+    );
+
+    expect(source?.ownedFiles).toContainEqual({
+      path: "apps/foo/bar/src/index.ts",
+      reason: "source group apps/foo/bar/src",
+    });
+    expect(source?.tags).toEqual(
+      expect.arrayContaining(["project:bar", "project-root:apps/foo/bar"]),
+    );
+    expect(result.features.some((feature) => feature.tags.includes("project-root:apps/foo"))).toBe(
+      false,
+    );
+  });
+
+  it("does not let non-reviewable src files suppress nested package-less projects", async () => {
+    const root = await fixtureRoot("clawpatch-map-generic-non-reviewable-src-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "workspace-root", workspaces: ["apps/**"] }, null, 2),
+    );
+    await writeFixture(root, "apps/foo/src/types.d.ts", "export type Config = {};\n");
+    await writeFixture(root, "apps/foo/src/index.test.ts", "test('container', () => {});\n");
+    await writeFixture(
+      root,
+      "apps/foo/src/generated/client.ts",
+      "export const generated = true;\n",
+    );
+    await writeFixture(root, "apps/foo/src/fixtures/example.ts", "export const fixture = true;\n");
+    await writeFixture(root, "apps/foo/bar/src/index.ts", "export const bar = true;\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const source = result.features.find(
+      (feature) => feature.title === "Node source apps/foo/bar/src",
+    );
+
+    expect(source?.ownedFiles).toContainEqual({
+      path: "apps/foo/bar/src/index.ts",
+      reason: "source group apps/foo/bar/src",
+    });
+    expect(source?.tags).toEqual(
+      expect.arrayContaining(["project:bar", "project-root:apps/foo/bar"]),
+    );
+    expect(result.features.some((feature) => feature.tags.includes("project-root:apps/foo"))).toBe(
+      false,
+    );
+  });
+
+  it("does not treat package-less React pages as Next routes without a Next signal", async () => {
+    const root = await fixtureRoot("clawpatch-map-generic-react-pages-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "workspace-root", dependencies: { react: "1.0.0" } }, null, 2),
+    );
+    await writeFixture(
+      root,
+      "apps/web/src/pages/About.tsx",
+      "export default function About() { return null; }\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+
+    expect(result.features.map((feature) => feature.title)).toContain("Node source apps/web/src");
+    expect(result.features.some((feature) => feature.source === "next-pages-route")).toBe(false);
+  });
+
+  it("normalizes leading dot workspace globs for package-less Next apps", async () => {
+    const root = await fixtureRoot("clawpatch-map-generic-dot-workspace-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify(
+        { name: "workspace-root", workspaces: ["./services/*"], dependencies: { next: "1.0.0" } },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "services/web/src/app/about/page.tsx",
+      "export default function About() { return null; }\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const route = result.features.find((feature) => feature.title === "web route /about");
+    const source = result.features.find(
+      (feature) => feature.title === "Node source services/web/src",
+    );
+
+    expect(route?.entrypoints[0]?.path).toBe("services/web/src/app/about/page.tsx");
+    expect(route?.tags).toEqual(
+      expect.arrayContaining(["project:web", "project-root:services/web"]),
+    );
+    expect(source?.tags).toEqual(
+      expect.arrayContaining(["project:web", "project-root:services/web"]),
+    );
+    expect(
+      result.features.some((feature) => feature.tags.includes("project-root:./services/web")),
+    ).toBe(false);
+  });
+
+  it("maps deep package-less Next route trees", async () => {
+    const root = await fixtureRoot("clawpatch-map-generic-deep-next-route-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify(
+        { name: "workspace-root", workspaces: ["apps/*"], dependencies: { next: "1.0.0" } },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "apps/web/src/app/(shop)/products/[slug]/reviews/page.tsx",
+      "export default function Reviews() { return null; }\n",
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const route = result.features.find(
+      (feature) => feature.title === "web route /products/:slug/reviews",
+    );
+
+    expect(route?.entrypoints[0]?.path).toBe(
+      "apps/web/src/app/(shop)/products/[slug]/reviews/page.tsx",
+    );
+    expect(route?.tags).toEqual(expect.arrayContaining(["project:web", "project-root:apps/web"]));
+  });
+
+  it("does not duplicate nested Node source roots under project sourceRoot", async () => {
+    const root = await fixtureRoot("clawpatch-map-source-root-overlap-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify({ name: "workspace-root", workspaces: ["apps/*"] }, null, 2),
+    );
+    await writeFixture(
+      root,
+      "apps/web/project.json",
+      JSON.stringify({ name: "web", sourceRoot: "apps/web", targets: {} }, null, 2),
+    );
+    await writeFixture(root, "apps/web/src/index.ts", "export const web = true;\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const sourceFeatures = result.features.filter((feature) =>
+      feature.title.startsWith("Node source apps/web"),
+    );
+
+    expect(sourceFeatures.map((feature) => feature.title)).toEqual(["Node source apps/web"]);
+    expect(sourceFeatures[0]?.ownedFiles).toContainEqual({
+      path: "apps/web/src/index.ts",
+      reason: "source group apps/web",
+    });
+  });
+
   it("uses package-local commands when no task graph adapter is present", async () => {
     const root = await fixtureRoot("clawpatch-task-graph-fallback-");
     await writeFixture(
       root,
       "package.json",
-      JSON.stringify({ name: "workspace-root", workspaces: ["apps/*"] }, null, 2),
+      JSON.stringify(
+        { name: "workspace-root", workspaces: ["apps/*"], dependencies: { next: "1.0.0" } },
+        null,
+        2,
+      ),
     );
     await writeFixture(root, "pnpm-lock.yaml", "");
     await writeFixture(
@@ -390,7 +882,11 @@ describe("mapFeatures", () => {
     await writeFixture(
       root,
       "apps/web/package.json",
-      JSON.stringify({ name: "web", scripts: { test: "vitest run" } }, null, 2),
+      JSON.stringify(
+        { name: "web", scripts: { test: "vitest run" }, dependencies: { next: "1.0.0" } },
+        null,
+        2,
+      ),
     );
     await writeFixture(root, "apps/web/package-lock.json", "{}\n");
     await writeFixture(

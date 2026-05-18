@@ -100,6 +100,26 @@ export async function discoverNodeProjects(root: string): Promise<NodeProjectInf
     });
   }
 
+  for (const projectRoot of await discoverGenericProjectRoots(root, rootPackage, byRoot)) {
+    if (byRoot.has(projectRoot)) {
+      continue;
+    }
+    byRoot.set(projectRoot, {
+      root: projectRoot,
+      name: basename(projectRoot),
+      workspaceMember:
+        declaredPackageRoots.has(projectRoot) || isConventionalProjectRoot(projectRoot),
+      packageJsonPath: null,
+      packageJson: null,
+      projectJsonPath: null,
+      sourceRoot: await genericProjectSourceRoot(root, projectRoot),
+      projectType: projectRoot.startsWith("apps/") ? "application" : null,
+      targets: {},
+      packageManager: rootPackageManager,
+      nxPackageManager: rootPackageManager,
+    });
+  }
+
   return [...byRoot.values()].toSorted((left, right) => left.root.localeCompare(right.root));
 }
 
@@ -329,6 +349,72 @@ async function packageRootsForPatterns(root: string, patterns: string[]): Promis
   return [...packageRoots].filter((path) => !isExcludedWorkspace(path, excludes)).toSorted();
 }
 
+async function discoverGenericProjectRoots(
+  root: string,
+  rootPackage: NodePackageJson | null,
+  existingProjects: Map<string, NodeProjectInfo>,
+): Promise<string[]> {
+  const patterns = await workspacePatterns(root, rootPackage);
+  const excludes = patterns
+    .filter((pattern) => pattern.startsWith("!"))
+    .flatMap((pattern) => {
+      const normalized = normalizeWorkspacePattern(pattern.slice(1));
+      return normalized === null ? [] : [normalized];
+    });
+  const projectRoots = new Set<string>();
+  for (const includePattern of patterns.filter((pattern) => !pattern.startsWith("!"))) {
+    for (const projectRoot of await expandGenericProjectPattern(root, includePattern)) {
+      projectRoots.add(projectRoot);
+    }
+  }
+  const roots: string[] = [];
+  const acceptedRoots: string[] = [];
+  for (const projectRoot of [...projectRoots].toSorted()) {
+    if (
+      projectRoot !== "." &&
+      !isExcludedWorkspace(projectRoot, excludes) &&
+      !(await pathExists(join(root, projectRoot, "package.json"))) &&
+      !(await pathExists(join(root, projectRoot, "project.json"))) &&
+      !isNestedUnderRoots(projectRoot, existingProjects.keys()) &&
+      !isNestedUnderRoots(projectRoot, acceptedRoots) &&
+      (await hasGenericProjectSignal(root, rootPackage, projectRoot))
+    ) {
+      roots.push(projectRoot);
+      acceptedRoots.push(projectRoot);
+    }
+  }
+  return roots;
+}
+
+function isNestedUnderRoots(projectRoot: string, roots: Iterable<string>): boolean {
+  return [...roots].some(
+    (existingRoot) =>
+      existingRoot !== "." &&
+      projectRoot !== existingRoot &&
+      pathMatchesPrefix(projectRoot, existingRoot),
+  );
+}
+
+async function expandGenericProjectPattern(root: string, pattern: string): Promise<string[]> {
+  const normalized = normalizeWorkspacePattern(pattern);
+  if (normalized === null || normalized === "." || normalized === "") {
+    return [];
+  }
+  if (normalized.endsWith("/**") && !hasWorkspaceGlob(normalized.slice(0, -3))) {
+    return discoverGenericProjectRootsUnder(root, normalized.slice(0, -3), 4);
+  }
+  const singleSegmentParent = normalized.endsWith("/*") ? normalized.slice(0, -2) : null;
+  if (singleSegmentParent !== null && !hasWorkspaceGlob(singleSegmentParent)) {
+    return (await safeDirectoryEntries(root, singleSegmentParent)).map(
+      (entry) => `${singleSegmentParent}/${entry}`,
+    );
+  }
+  if (hasWorkspaceGlob(normalized)) {
+    return expandGenericProjectGlob(root, normalized);
+  }
+  return (await isSafeDirectory(root, join(root, normalized))) ? [normalized] : [];
+}
+
 function packageWorkspacePatterns(pkg: NodePackageJson): string[] {
   const workspaces = pkg.workspaces;
   if (Array.isArray(workspaces)) {
@@ -400,7 +486,8 @@ async function expandWorkspacePattern(root: string, pattern: string): Promise<st
 function normalizeWorkspacePattern(pattern: string): string | null {
   const normalized = normalize(pattern)
     .replace(/\/package\.json$/u, "")
-    .replace(/\/$/u, "");
+    .replace(/\/$/u, "")
+    .replace(/^\.\/+/u, "");
   if (normalized.startsWith("/") || normalized.split("/").includes("..")) {
     return null;
   }
@@ -514,6 +601,16 @@ async function discoverPackageRootsUnder(
   return output.toSorted();
 }
 
+async function discoverGenericProjectRootsUnder(
+  root: string,
+  prefix: string,
+  maxDepth: number,
+): Promise<string[]> {
+  const output: string[] = [];
+  await discoverGenericProjectRootsInto(root, prefix, maxDepth, output);
+  return output.filter((projectRoot) => projectRoot !== prefix).toSorted();
+}
+
 async function discoverPackageRootsInto(
   root: string,
   prefix: string,
@@ -529,6 +626,61 @@ async function discoverPackageRootsInto(
   for (const entry of await safeDirectoryEntries(root, prefix)) {
     await discoverPackageRootsInto(root, `${prefix}/${entry}`, remainingDepth - 1, output);
   }
+}
+
+async function discoverGenericProjectRootsInto(
+  root: string,
+  prefix: string,
+  remainingDepth: number,
+  output: string[],
+): Promise<void> {
+  if (remainingDepth < 0 || shouldSkipProjectDir(prefix)) {
+    return;
+  }
+  if (prefix.length > 0) {
+    output.push(prefix);
+  }
+  for (const entry of await safeDirectoryEntries(root, prefix)) {
+    await discoverGenericProjectRootsInto(root, `${prefix}/${entry}`, remainingDepth - 1, output);
+  }
+}
+
+async function expandGenericProjectGlob(root: string, pattern: string): Promise<string[]> {
+  const projects: string[] = [];
+  const segments = pattern.split("/");
+
+  async function visit(base: string, remaining: string[]): Promise<void> {
+    const [segment, ...rest] = remaining;
+    if (segment === undefined) {
+      if (base.length > 0 && (await isSafeDirectory(root, join(root, base)))) {
+        projects.push(base);
+      }
+      return;
+    }
+
+    if (!hasWorkspaceGlob(segment)) {
+      await visit(base.length === 0 ? segment : `${base}/${segment}`, rest);
+      return;
+    }
+
+    if (segment === "**") {
+      await visit(base, rest);
+      for (const entry of await safeDirectoryEntries(root, base)) {
+        await visit(base.length === 0 ? entry : `${base}/${entry}`, remaining);
+      }
+      return;
+    }
+
+    const matcher = globSegmentRegExp(segment);
+    for (const entry of await safeDirectoryEntries(root, base)) {
+      if (matcher.test(entry)) {
+        await visit(base.length === 0 ? entry : `${base}/${entry}`, rest);
+      }
+    }
+  }
+
+  await visit("", segments);
+  return projects.toSorted();
 }
 
 async function discoverNxProjectJsonPaths(root: string): Promise<string[]> {
@@ -562,6 +714,179 @@ async function discoverNxProjectJsonPathsInto(
 
 function shouldSkipProjectDir(path: string): boolean {
   return shouldSkip(path) || /(^|\/)(\.next|\.turbo|\.vercel)(\/|$)/u.test(path);
+}
+
+async function hasGenericProjectSignal(
+  root: string,
+  rootPackage: NodePackageJson | null,
+  projectRoot: string,
+): Promise<boolean> {
+  for (const file of ["next.config.js", "next.config.mjs", "next.config.ts"]) {
+    if (await pathExists(join(root, packageRelativePath(projectRoot, file)))) {
+      return true;
+    }
+  }
+  if (await hasHoistedNextRouteSignal(root, rootPackage, projectRoot)) {
+    return true;
+  }
+  for (const sourceRoot of genericProjectSourceRoots(projectRoot)) {
+    const files = await sourceLikeFiles(root, sourceRoot);
+    if (isGenericProjectSignal(sourceRoot, files)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function genericProjectSourceRoot(root: string, projectRoot: string): Promise<string | null> {
+  const src = packageRelativePath(projectRoot, "src");
+  return (await pathExists(join(root, src))) ? src : null;
+}
+
+function genericProjectSourceRoots(projectRoot: string): string[] {
+  return genericSourceRootNames.map((sourceRoot) => packageRelativePath(projectRoot, sourceRoot));
+}
+
+const genericSourceRootNames = ["src", "app", "pages", "lib", "server", "api"];
+
+async function hasHoistedNextRouteSignal(
+  root: string,
+  rootPackage: NodePackageJson | null,
+  projectRoot: string,
+): Promise<boolean> {
+  if (!hasNextDependency(rootPackage)) {
+    return false;
+  }
+  for (const routeRoot of ["app", "src/app", "pages", "src/pages"]) {
+    const prefix = packageRelativePath(projectRoot, routeRoot);
+    const files = await sourceLikeFilesAtDepth(root, prefix, 12);
+    if (files.some((file) => isGenericNextRouteFile(projectRoot, file))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasNextDependency(pkg: NodePackageJson | null): boolean {
+  return (
+    dependencyFieldHas(pkg?.dependencies, "next") ||
+    dependencyFieldHas(pkg?.devDependencies, "next")
+  );
+}
+
+function isGenericNextRouteFile(projectRoot: string, file: string): boolean {
+  const relativeFile = projectRoot === "." ? file : pathRelativeToPrefix(file, projectRoot);
+  return (
+    /^src\/app\/.+\/(?:page|route)\.[cm]?[jt]sx?$/iu.test(relativeFile) ||
+    /^app\/.+\/(?:page|route)\.[cm]?[jt]sx?$/iu.test(relativeFile) ||
+    (/^(?:src\/)?pages\/api\/.+\.[cm]?[jt]sx?$/iu.test(relativeFile) &&
+      !/^(?:src\/)?pages\/_(?:app|document|error)\.[cm]?[jt]sx?$/iu.test(relativeFile))
+  );
+}
+
+function isGenericProjectSignal(sourceRoot: string, files: string[]): boolean {
+  if (files.length === 0) {
+    return false;
+  }
+  const sourceRootName = sourceRoot.split("/").at(-1);
+  if (sourceRootName === "src") {
+    return true;
+  }
+  return files.some((file) => {
+    const relativeFile = pathRelativeToPrefix(file, sourceRoot);
+    const [firstSegment, ...rest] = relativeFile.split("/");
+    if (isNestedSourceSignal(sourceRootName, firstSegment)) {
+      return true;
+    }
+    return (
+      firstSegment === undefined ||
+      rest.length === 0 ||
+      !genericSourceRootNames.includes(firstSegment)
+    );
+  });
+}
+
+function isNestedSourceSignal(
+  sourceRootName: string | undefined,
+  firstSegment: string | undefined,
+): boolean {
+  return (
+    firstSegment === "api" &&
+    (sourceRootName === "app" || sourceRootName === "pages" || sourceRootName === "server")
+  );
+}
+
+function pathRelativeToPrefix(path: string, prefix: string): string {
+  return path === prefix ? "" : path.slice(prefix.length + 1);
+}
+
+async function sourceLikeFiles(root: string, sourceRoot: string): Promise<string[]> {
+  return sourceLikeFilesAtDepth(root, sourceRoot, 4);
+}
+
+async function sourceLikeFilesAtDepth(
+  root: string,
+  sourceRoot: string,
+  maxDepth: number,
+): Promise<string[]> {
+  const files: string[] = [];
+  await sourceLikeFilesInto(root, sourceRoot, maxDepth, files);
+  return files;
+}
+
+async function sourceLikeFilesInto(
+  root: string,
+  prefix: string,
+  remainingDepth: number,
+  output: string[],
+): Promise<void> {
+  if (remainingDepth < 0 || shouldSkipProjectDir(prefix)) {
+    return;
+  }
+  for (const entry of await safeDirectoryEntries(root, prefix)) {
+    await sourceLikeFilesInto(root, packageRelativePath(prefix, entry), remainingDepth - 1, output);
+  }
+  for (const file of await safeFileEntries(root, prefix)) {
+    const path = packageRelativePath(prefix, file);
+    if (isReviewableGenericSourceFile(path)) {
+      output.push(path);
+    }
+  }
+}
+
+function isReviewableGenericSourceFile(path: string): boolean {
+  return (
+    /\.(?:[cm]?[jt]sx?)$/iu.test(path) &&
+    !/\.(?:test|spec)\.[cm]?[jt]sx?$/iu.test(path) &&
+    !/\.d\.[cm]?ts$/iu.test(path) &&
+    !/(^|\/)(?:__fixtures__|fixtures|testdata)(\/|$)/iu.test(path) &&
+    !/(^|\/)(?:generated|__generated__)(\/|$)/iu.test(path) &&
+    !/(^|\/)[^/]*(?:generated|\.gen)\.[^.]+$/iu.test(path)
+  );
+}
+
+async function safeFileEntries(root: string, prefix: string): Promise<string[]> {
+  const dir = join(root, prefix);
+  if (!(await isSafeDirectory(root, dir))) {
+    return [];
+  }
+  const entries = await readdir(dir);
+  const output: string[] = [];
+  for (const entry of entries) {
+    const rel = normalize(join(prefix, entry));
+    if (shouldSkipProjectDir(rel)) {
+      continue;
+    }
+    const childInfo = await lstat(join(dir, entry));
+    if (childInfo.isFile() && !childInfo.isSymbolicLink()) {
+      output.push(entry);
+    }
+  }
+  return output.toSorted();
+}
+
+function isConventionalProjectRoot(projectRoot: string): boolean {
+  return /^(?:apps|packages|frontend|client|web|ui|extensions|plugins)(?:\/|$)/u.test(projectRoot);
 }
 
 async function safeDirectoryEntries(root: string, prefix: string): Promise<string[]> {

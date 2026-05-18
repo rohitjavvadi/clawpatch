@@ -33,7 +33,7 @@ type PackageInfo = NodeProjectInfo & {
   packageJson: NodePackageJson;
 };
 
-const sourceDirectories = ["src", "lib", "app", "pages", "scripts"] as const;
+const sourceDirectories = ["src", "lib", "app", "pages", "scripts", "server", "api"] as const;
 const testDirectories = ["test", "tests", "__tests__"] as const;
 const sourceGroupMaxOwnedFiles = 12;
 const sourceGroupMaxTests = 8;
@@ -65,11 +65,12 @@ const semanticSourceSegments = [
 ] as const;
 
 export async function nodeSeeds(root: string, context: MapperContext): Promise<FeatureSeed[]> {
-  const packages = context.projects.filter(hasNodePackage);
   const seeds: FeatureSeed[] = [];
 
-  for (const info of packages) {
-    seeds.push(...(await packageSeeds(root, info, context.taskGraph)));
+  for (const info of context.projects) {
+    if (hasNodePackage(info)) {
+      seeds.push(...(await packageSeeds(root, info, context.taskGraph)));
+    }
     seeds.push(...(await sourceGroupSeeds(root, info, context.taskGraph)));
   }
 
@@ -187,7 +188,7 @@ async function packageSeeds(
 
 async function sourceGroupSeeds(
   root: string,
-  info: PackageInfo,
+  info: NodeProjectInfo,
   taskGraph: WorkspaceTaskGraph,
 ): Promise<FeatureSeed[]> {
   const packageName = projectDisplayName(info);
@@ -210,6 +211,8 @@ async function sourceGroupSeeds(
     }
     for (const group of partitionNodeFileGroups(sourceRoot, files, sourceGroupMaxOwnedFiles)) {
       const tests = associatedTests(group.files, testFiles, testCommand ?? null);
+      const entryPath =
+        info.packageJsonPath ?? info.projectJsonPath ?? group.files[0] ?? sourceRoot;
       seeds.push({
         title: `Node source ${group.label}`,
         summary:
@@ -219,7 +222,7 @@ async function sourceGroupSeeds(
         kind: packageKind(`${packageName} ${group.label}`),
         source: "node-source-group",
         confidence: "medium",
-        entryPath: info.packageJsonPath,
+        entryPath,
         symbol: group.label,
         route: null,
         command: null,
@@ -228,7 +231,9 @@ async function sourceGroupSeeds(
           reason: `source group ${group.label}`,
         })),
         contextFiles: uniqueFileRefs([
-          { path: info.packageJsonPath, reason: "package manifest" },
+          ...(info.packageJsonPath === null
+            ? await projectContextFiles(root, info)
+            : [{ path: info.packageJsonPath, reason: "package manifest" }]),
           ...tests.map((test) => ({ path: test.path, reason: "associated test" })),
         ]),
         tests,
@@ -236,6 +241,7 @@ async function sourceGroupSeeds(
           "node",
           "typescript",
           "source-group",
+          ...(info.packageJsonPath === null ? ["generic-project"] : []),
           ...projectTags(info),
           ...(testCommand === null ? [suppressedTestCommandTag] : []),
         ],
@@ -366,7 +372,7 @@ async function existingFileRefs(root: string, refs: SeedFileRef[]): Promise<Seed
   return output;
 }
 
-function packageSourceRoots(info: PackageInfo, railsPackage: boolean): string[] {
+function packageSourceRoots(info: NodeProjectInfo, railsPackage: boolean): string[] {
   if (railsPackage) {
     return [
       ...new Set(
@@ -376,11 +382,25 @@ function packageSourceRoots(info: PackageInfo, railsPackage: boolean): string[] 
       ),
     ].filter((path) => !pathMatchesPrefix(path, packageRelativePath(info.root, "app/assets")));
   }
-  return sourceDirectories.map((dir) => packageRelativePath(info.root, dir));
+  return shallowSourceRoots([
+    ...new Set([
+      ...(info.sourceRoot === null ? [] : [info.sourceRoot]),
+      ...sourceDirectories.map((dir) => packageRelativePath(info.root, dir)),
+    ]),
+  ]);
+}
+
+function shallowSourceRoots(sourceRoots: string[]): string[] {
+  return sourceRoots.filter(
+    (sourceRoot) =>
+      !sourceRoots.some(
+        (other) => other !== sourceRoot && (other === "." || pathMatchesPrefix(sourceRoot, other)),
+      ),
+  );
 }
 
 function isRailsExcludedNodeSourcePath(
-  info: PackageInfo,
+  info: NodeProjectInfo,
   railsPackage: boolean,
   sourceRoot: string,
   path: string,
@@ -399,7 +419,7 @@ function isRailsExcludedNodeSourcePath(
   );
 }
 
-async function packageTestFiles(root: string, info: PackageInfo): Promise<string[]> {
+async function packageTestFiles(root: string, info: NodeProjectInfo): Promise<string[]> {
   const railsPackage = await isRailsPackage(root, info.root);
   const prefixes = [
     ...packageSourceRoots(info, railsPackage),

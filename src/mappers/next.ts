@@ -13,8 +13,12 @@ import type { WorkspaceTaskGraph } from "./task-graph.js";
 import { FeatureSeed, MapperContext, suppressedTestCommandTag } from "./types.js";
 
 export async function nextSeeds(root: string, context: MapperContext): Promise<FeatureSeed[]> {
+  const rootProject = context.projects.find((project) => project.root === ".");
+  const rootHasNext = rootProject === undefined ? false : hasNextDependency(rootProject);
   const seedGroups = await Promise.all(
-    context.projects.map(async (project) => projectNextSeeds(root, project, context.taskGraph)),
+    context.projects.map(async (project) =>
+      projectNextSeeds(root, project, context.taskGraph, rootHasNext),
+    ),
   );
   return seedGroups.flat();
 }
@@ -23,8 +27,9 @@ async function projectNextSeeds(
   root: string,
   project: NodeProjectInfo,
   taskGraph: WorkspaceTaskGraph,
+  rootHasNext: boolean,
 ): Promise<FeatureSeed[]> {
-  const prefixes = await nextPrefixes(root, project);
+  const prefixes = await nextPrefixes(root, project, rootHasNext);
   if (prefixes.length === 0) {
     return [];
   }
@@ -68,13 +73,20 @@ async function projectNextSeeds(
   });
 }
 
-async function nextPrefixes(root: string, project: NodeProjectInfo): Promise<string[]> {
-  const hasSignal = await isNextProject(root, project);
+async function nextPrefixes(
+  root: string,
+  project: NodeProjectInfo,
+  rootHasNext: boolean,
+): Promise<string[]> {
+  const hasSignal = await isNextProject(root, project, rootHasNext);
+  const fallbackPrefixes = project.packageJson === null ? [] : ["app", "pages"];
   const projectPrefixes = new Set(
-    hasSignal ? ["app", "pages", "src/app", "src/pages"] : ["app", "pages"],
+    hasSignal ? ["app", "pages", "src/app", "src/pages"] : fallbackPrefixes,
   );
-  for (const prefix of sourceRootRoutePrefixes(project)) {
-    projectPrefixes.add(prefix);
+  if (hasSignal) {
+    for (const prefix of sourceRootRoutePrefixes(project)) {
+      projectPrefixes.add(prefix);
+    }
   }
   const existing: string[] = [];
   for (const prefix of [...projectPrefixes].map((path) =>
@@ -108,12 +120,12 @@ function sourceRootRoutePrefixes(project: NodeProjectInfo): string[] {
   );
 }
 
-async function isNextProject(root: string, project: NodeProjectInfo): Promise<boolean> {
-  const pkg = project.packageJson;
-  if (
-    dependencyFieldHas(pkg?.dependencies, "next") ||
-    dependencyFieldHas(pkg?.devDependencies, "next")
-  ) {
+async function isNextProject(
+  root: string,
+  project: NodeProjectInfo,
+  rootHasNext: boolean,
+): Promise<boolean> {
+  if (hasNextDependency(project)) {
     return true;
   }
   for (const file of ["next.config.js", "next.config.mjs", "next.config.ts"]) {
@@ -121,7 +133,116 @@ async function isNextProject(root: string, project: NodeProjectInfo): Promise<bo
       return true;
     }
   }
+  if (rootHasNext && (await hasRootNextProjectSignal(root, project))) {
+    return true;
+  }
   return false;
+}
+
+function hasNextDependency(project: NodeProjectInfo): boolean {
+  const pkg = project.packageJson;
+  return (
+    dependencyFieldHas(pkg?.dependencies, "next") ||
+    dependencyFieldHas(pkg?.devDependencies, "next")
+  );
+}
+
+async function hasRootNextProjectSignal(root: string, project: NodeProjectInfo): Promise<boolean> {
+  if (project.root === ".") {
+    return false;
+  }
+  if (hasNextCommandScript(project.packageJson?.scripts)) {
+    return hasLiteralNextRoutes(root, project);
+  }
+  if (project.packageJson === null || project.projectJsonPath !== null) {
+    return hasPackageLessNextRoutes(root, project);
+  }
+  return false;
+}
+
+function hasNextCommandScript(scripts: unknown): boolean {
+  if (typeof scripts !== "object" || scripts === null) {
+    return false;
+  }
+  return Object.values(scripts).some(
+    (script) => typeof script === "string" && /(?:^|[\s;&|()])next(?:\s|$)/u.test(script),
+  );
+}
+
+async function hasLiteralNextRoutes(root: string, project: NodeProjectInfo): Promise<boolean> {
+  for (const prefix of ["app", "pages", "src/app", "src/pages"]) {
+    if (await pathExists(join(root, packageRelativePath(project.root, prefix)))) {
+      return true;
+    }
+  }
+  for (const prefix of sourceRootRoutePrefixes(project)) {
+    if (await pathExists(join(root, packageRelativePath(project.root, prefix)))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function hasAppRouterRoutes(root: string, project: NodeProjectInfo): Promise<boolean> {
+  for (const prefix of appRouterPrefixes(project)) {
+    const files = await walk(root, [packageRelativePath(project.root, prefix)]);
+    if (
+      files.some((file) => {
+        const projectRelativePath = projectRelativeRoutePath(project, file);
+        return projectRelativePath !== null && nextRouteKind(projectRelativePath) === "app";
+      })
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function hasPackageLessNextRoutes(root: string, project: NodeProjectInfo): Promise<boolean> {
+  return (await hasAppRouterRoutes(root, project)) || (await hasPagesRouterSignal(root, project));
+}
+
+async function hasPagesRouterSignal(root: string, project: NodeProjectInfo): Promise<boolean> {
+  for (const prefix of pagesRouterPrefixes(project)) {
+    const files = await walk(root, [packageRelativePath(project.root, prefix)]);
+    if (
+      files.some((file) => {
+        const projectRelativePath = projectRelativeRoutePath(project, file);
+        return projectRelativePath !== null && isPagesRouterSignalFile(projectRelativePath);
+      })
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function appRouterPrefixes(project: NodeProjectInfo): string[] {
+  return [
+    ...new Set(["app", "src/app", ...sourceRootRoutePrefixes(project).filter(isAppRouterPrefix)]),
+  ];
+}
+
+function pagesRouterPrefixes(project: NodeProjectInfo): string[] {
+  return [
+    ...new Set([
+      "pages",
+      "src/pages",
+      ...sourceRootRoutePrefixes(project).filter(isPagesRouterPrefix),
+    ]),
+  ];
+}
+
+function isAppRouterPrefix(prefix: string): boolean {
+  return prefix === "app" || prefix.endsWith("/app");
+}
+
+function isPagesRouterPrefix(prefix: string): boolean {
+  return prefix === "pages" || prefix.endsWith("/pages");
+}
+
+function isPagesRouterSignalFile(file: string): boolean {
+  return nextRouteKind(file) === "pages" && /^(?:src\/)?pages\/api\//u.test(file);
 }
 
 function projectRelativeRoutePath(project: NodeProjectInfo, file: string): string | null {
