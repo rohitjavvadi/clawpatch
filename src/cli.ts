@@ -146,7 +146,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
 const commandFlags = {
   init: new Set(["force"]),
-  map: new Set(["dryRun", "source", "provider", "model", "reasoningEffort"]),
+  map: new Set(["dryRun", "source", "provider", "model", "reasoningEffort", "skipGitRepoCheck"]),
   status: new Set<string>(),
   review: new Set([
     "feature",
@@ -154,16 +154,20 @@ const commandFlags = {
     "limit",
     "since",
     "jobs",
+    "mode",
     "provider",
     "model",
     "reasoningEffort",
+    "skipGitRepoCheck",
     "dryRun",
+    "promptFile",
+    "exportTribunalLedger",
   ]),
   report: new Set(["status", "severity", "feature", "project", "category", "triage", "output"]),
   show: new Set(["finding"]),
   next: new Set(["status", "project"]),
   triage: new Set(["finding", "status", "note"]),
-  fix: new Set(["finding", "provider", "model", "reasoningEffort", "dryRun"]),
+  fix: new Set(["finding", "provider", "model", "reasoningEffort", "skipGitRepoCheck", "dryRun"]),
   revalidate: new Set([
     "finding",
     "all",
@@ -177,6 +181,7 @@ const commandFlags = {
     "provider",
     "model",
     "reasoningEffort",
+    "skipGitRepoCheck",
   ]),
   doctor: new Set(["provider", "model", "reasoningEffort"]),
   "clean-locks": new Set<string>(),
@@ -197,10 +202,13 @@ const valueFlagNames = new Set([
   "limit",
   "since",
   "jobs",
+  "mode",
   "source",
   "provider",
   "model",
   "reasoning-effort",
+  "prompt-file",
+  "export-tribunal-ledger",
   "output",
   "status",
   "severity",
@@ -219,6 +227,7 @@ const booleanFlagNames = new Set([
   "no-color",
   "no-input",
   "dry-run",
+  "skip-git-repo-check",
   "force",
   "all",
 ]);
@@ -266,6 +275,14 @@ function validateCommandRequirements(
     typeof flags["since"] !== "string"
   ) {
     throw new ClawpatchError("missing --finding or --all", 2, "invalid-usage");
+  }
+  if (
+    command === "review" &&
+    typeof flags["mode"] === "string" &&
+    flags["mode"] !== "default" &&
+    flags["mode"] !== "deslopify"
+  ) {
+    throw new ClawpatchError("invalid --mode; expected default or deslopify", 2, "invalid-usage");
   }
 }
 
@@ -370,10 +387,19 @@ Flags:
   --limit <n>
   --since <ref>
   --jobs <n>        default: 10
+  --mode <default|deslopify>
   --provider <name>
   --model <name>
   --reasoning-effort <none|minimal|low|medium|high|xhigh>
+  --skip-git-repo-check
   --dry-run
+  --prompt-file <path>    appends extra reviewer guidance to the prompt;
+                          use "-" to read from stdin
+  --export-tribunal-ledger <path>
+                          after the review completes, emit a single
+                          JSONL file with one line per finding shaped
+                          for downstream Tribunal-style signed-ledger
+                          ingest. Opt-in; no effect when omitted.
   --json
   -q, --quiet
 `);
@@ -447,6 +473,7 @@ Flags:
   --provider <name>
   --model <name>
   --reasoning-effort <none|minimal|low|medium|high|xhigh>
+  --skip-git-repo-check
   --dry-run
   --json
 `);
@@ -475,6 +502,7 @@ Flags:
   --provider <name>
   --model <name>
   --reasoning-effort <none|minimal|low|medium|high|xhigh>
+  --skip-git-repo-check
   --dry-run
   --json
 `);
@@ -500,6 +528,7 @@ Flags:
   --provider <name>
   --model <name>
   --reasoning-effort <none|minimal|low|medium|high|xhigh>
+  --skip-git-repo-check
   --json
 `);
     return;

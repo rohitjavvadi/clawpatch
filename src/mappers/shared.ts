@@ -341,7 +341,7 @@ function shouldSkipCOrCppNearbyPath(path: string): boolean {
 }
 
 function isCOrCppDependencyPath(path: string): boolean {
-  return /(^|\/)(vendor|CMakeFiles|cmake-build-[^/]+)(\/|$)/u.test(path);
+  return /(^|\/)(deps|vendor|CMakeFiles|cmake-build-[^/]+)(\/|$)/u.test(path);
 }
 
 function swiftTestPrefixesForEntry(entryPath: string): string[] {

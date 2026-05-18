@@ -30,6 +30,7 @@ pnpm link --global
 clawpatch init
 clawpatch map
 clawpatch review --limit 3 --jobs 3
+clawpatch review --mode deslopify --limit 3
 clawpatch report
 clawpatch next
 clawpatch show --finding <id>
@@ -66,7 +67,13 @@ validation commands and records a patch attempt under `.clawpatch/`.
   imports, interfaces, inheritance, supertypes, and method signatures
 - Kotlin Android semantic roles for UI entrypoints, ViewModels, data
   boundaries, external clients, and dependency injection, including Metro
+- C#/.NET projects from `.sln`, `.slnx`, `.csproj`, `.fsproj`, and `.vbproj`
+  files, with conservative `dotnet build` / `dotnet test` defaults
+- ASP.NET Core controllers, minimal API endpoints, C#/F#/Visual Basic source
+  groups, and .NET test projects
 - Ruby project metadata, executables, source groups, RSpec/Minitest suites
+- Elixir Mix/Phoenix projects, contexts, Phoenix web slices, runtime config,
+  Ecto migrations, project scripts, and ExUnit suites
 - Rust `src/main.rs`, `src/bin/*.rs`, `src/lib.rs`, `crates/*`, and
   `tests/*.rs`
 - C/C++ standalone `main()` files, CMake `add_executable` / `add_library`
@@ -94,6 +101,11 @@ Provider calls use `codex exec` with strict JSON schemas. Review and revalidate
 run read-only; fix planning runs with workspace-write because Codex may edit the
 working tree during the explicit fix command.
 
+Set `CLAWPATCH_CODEX_SANDBOX` to override the Codex sandbox passed by
+Clawpatch. Use any Codex sandbox mode, or `bypass`/`none` to pass
+`--dangerously-bypass-approvals-and-sandbox` when the host environment already
+provides isolation.
+
 Supported provider names today:
 
 - `codex`: local Codex CLI
@@ -109,6 +121,7 @@ Supported provider names today:
 - `clawpatch map`: write feature records
 - `clawpatch status`: show project, dirty state, feature/finding counts
 - `clawpatch review`: review pending or selected features
+- `clawpatch review --mode deslopify`: review only for locally provable slop cleanup
 - `clawpatch report`: print or write a Markdown findings report
 - `clawpatch next`: print the next actionable finding
 - `clawpatch show --finding <id>`: inspect one finding with evidence and suggested validation
@@ -137,6 +150,7 @@ Useful flags:
 - `--provider <name>`
 - `--model <name>`
 - `--reasoning-effort <none|minimal|low|medium|high|xhigh>`
+- `--skip-git-repo-check`
 - `--output <path>` / `-o <path>`
 - `--dry-run`
 - `--force`
