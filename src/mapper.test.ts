@@ -1754,6 +1754,7 @@ describe("mapFeatures", () => {
       root,
       "src/server.ts",
       [
+        "// route imports",
         "import express, { Router, Router as ExpressRouter } from 'express';",
         "",
         "const app = express();",

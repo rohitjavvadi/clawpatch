@@ -339,7 +339,8 @@ function expressRouterImportBindingNames(source: string): Set<string> {
     /(?:^|[;\n])\s*import\s+(?!type\b)((?:(?!\n\s*import\b)[\s\S]){0,400}?)\bfrom\s*["']express["']/gu;
   pattern.lastIndex = 0;
   for (const match of source.matchAll(pattern)) {
-    if (isInsideCommentOrString(source, match.index ?? 0)) {
+    const importIndex = source.indexOf("import", match.index ?? 0);
+    if (importIndex < 0 || isInsideCommentOrString(source, importIndex)) {
       continue;
     }
     addExpressRouterImportNames(names, match[1] ?? "");
