@@ -91,11 +91,7 @@ describe("validateReviewOutput", () => {
 
   it("rejects quotes that only match outside the cited line range", async () => {
     const root = await fixtureRoot("clawpatch-review-validation-line-quote-");
-    await writeFixture(
-      root,
-      "src/index.ts",
-      "const first = 'TODO_BUG';\nconst second = 'safe';\n",
-    );
+    await writeFixture(root, "src/index.ts", "const first = 'TODO_BUG';\nconst second = 'safe';\n");
 
     await expect(
       validateReviewOutput(

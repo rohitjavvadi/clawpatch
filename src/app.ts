@@ -675,7 +675,11 @@ async function reviewFeature(options: ReviewFeatureOptions): Promise<{ findingId
       mode,
       customPrompt,
     );
-    const providerOutput = await provider.review(loaded.root, reviewPrompt.prompt, providerOptions(config));
+    const providerOutput = await provider.review(
+      loaded.root,
+      reviewPrompt.prompt,
+      providerOptions(config),
+    );
     const reviewOutput = {
       ...providerOutput,
       findings: reviewFindingsForMode(providerOutput.findings, mode).slice(
@@ -1124,11 +1128,7 @@ export async function openPrCommand(
     if (stagePlan.addFiles.length > 0) {
       await checkedRun(
         "git add",
-        runCommandArgs(
-          "git",
-          ["add", "--", ...stagePlan.addFiles.map(gitPathspec)],
-          git.root,
-        ),
+        runCommandArgs("git", ["add", "--", ...stagePlan.addFiles.map(gitPathspec)], git.root),
       );
     }
     if (stagePlan.updateFiles.length > 0) {
@@ -1287,7 +1287,9 @@ function applyProviderFlags(
   };
 }
 
-function providerFlagSubset(flags: Record<string, string | boolean>): Record<string, string | boolean> {
+function providerFlagSubset(
+  flags: Record<string, string | boolean>,
+): Record<string, string | boolean> {
   const subset: Record<string, string | boolean> = {};
   for (const flag of ["provider", "model", "reasoningEffort"] as const) {
     const value = stringFlag(flags, flag);
@@ -1301,7 +1303,9 @@ function providerFlagSubset(flags: Record<string, string | boolean>): Record<str
   return subset;
 }
 
-function reviewFlagSubset(flags: Record<string, string | boolean>): Record<string, string | boolean> {
+function reviewFlagSubset(
+  flags: Record<string, string | boolean>,
+): Record<string, string | boolean> {
   const subset = providerFlagSubset(flags);
   for (const flag of ["since", "limit", "jobs"] as const) {
     const value = stringFlag(flags, flag);
@@ -1374,7 +1378,11 @@ function reviewAnalysisSummary(findings: number, manifest: ReviewPromptManifest)
 
 function validatePrPatch(patch: PatchAttempt, force: boolean): void {
   if (patch.filesChanged.length === 0) {
-    throw new ClawpatchError(`patch has no changed files: ${patch.patchAttemptId}`, 2, "invalid-input");
+    throw new ClawpatchError(
+      `patch has no changed files: ${patch.patchAttemptId}`,
+      2,
+      "invalid-input",
+    );
   }
   if (!["applied", "validated"].includes(patch.status) && !force) {
     throw new ClawpatchError(
@@ -1518,7 +1526,9 @@ function plannedPrCommands(
     const commitFiles = stagePlan?.commitFiles ?? gitFiles;
     const addFiles = stagePlan?.addFiles ?? gitFiles;
     const updateFiles = stagePlan?.updateFiles ?? [];
-    commands.push(branchExists ? `git switch ${shellArg(branch)}` : `git switch -c ${shellArg(branch)}`);
+    commands.push(
+      branchExists ? `git switch ${shellArg(branch)}` : `git switch -c ${shellArg(branch)}`,
+    );
     if (addFiles.length > 0) {
       commands.push(`git add -- ${shellPathspecArgs(addFiles)}`);
     }
@@ -1688,7 +1698,10 @@ function isUsableRelativePrefix(path: string): boolean {
   return path.length > 0 && path !== "." && path !== ".." && !path.startsWith("../");
 }
 
-async function checkedRun(label: string, resultPromise: Promise<CommandResult>): Promise<CommandResult> {
+async function checkedRun(
+  label: string,
+  resultPromise: Promise<CommandResult>,
+): Promise<CommandResult> {
   const result = await resultPromise;
   if (result.exitCode !== 0) {
     throw new ClawpatchError(

@@ -49,9 +49,7 @@ describe("review prompt provenance", () => {
     const bundle = await buildReviewPromptBundle(root, project(root), feature(), defaultConfig());
 
     expect(bundle.manifest.includedFiles).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ path: "docs/large.md", truncated: true }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ path: "docs/large.md", truncated: true })]),
     );
   });
 });

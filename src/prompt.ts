@@ -364,10 +364,9 @@ async function fileBlockWithManifest(
   }
   const bytes = Buffer.byteLength(contents, "utf8");
   const truncated = contents.length > REVIEW_PROMPT_FILE_CHAR_LIMIT;
-  const trimmed =
-    truncated
-      ? `${contents.slice(0, REVIEW_PROMPT_FILE_CHAR_LIMIT)}\n...[truncated]`
-      : contents;
+  const trimmed = truncated
+    ? `${contents.slice(0, REVIEW_PROMPT_FILE_CHAR_LIMIT)}\n...[truncated]`
+    : contents;
   return {
     block: `--- ${path}\n${trimmed}`,
     manifest: {

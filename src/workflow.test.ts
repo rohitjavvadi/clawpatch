@@ -3422,9 +3422,7 @@ describe("workflow", () => {
     expect(preview).toMatchObject({
       commands: expect.arrayContaining([
         expect.stringContaining("git add -- ':(literal)packages/app/src/index.ts'"),
-        expect.stringContaining(
-          "gh pr create --base develop --head clawpatch/pat_open_pr_subdir",
-        ),
+        expect.stringContaining("gh pr create --base develop --head clawpatch/pat_open_pr_subdir"),
         expect.stringContaining("--draft"),
       ]),
     });
@@ -3913,11 +3911,7 @@ describe("workflow", () => {
 
   it("opens PRs for literal names that look like git pathspec magic", async () => {
     const root = await fixtureRoot("clawpatch-open-pr-literal-pathspec-");
-    await writeFixture(
-      root,
-      "package.json",
-      JSON.stringify({ name: "open-pr-literal-pathspec" }),
-    );
+    await writeFixture(root, "package.json", JSON.stringify({ name: "open-pr-literal-pathspec" }));
     await writeFixture(root, "README.md", "base\n");
     await initGit(root);
     await checkCommand(root, "git add package.json README.md");

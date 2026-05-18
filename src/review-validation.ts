@@ -12,7 +12,9 @@ export async function validateReviewOutput(
   output: ReviewOutput,
 ): Promise<ReviewOutput> {
   const included = includedReviewPaths(feature, config);
-  const promptFiles = new Map(manifest.includedFiles.map((file) => [normalizePath(file.path), file]));
+  const promptFiles = new Map(
+    manifest.includedFiles.map((file) => [normalizePath(file.path), file]),
+  );
   const cache = new Map<string, Promise<string>>();
   const findings = output.findings;
   for (const finding of findings) {
@@ -132,10 +134,7 @@ function assertQuote(
           .slice(evidence.startLine - 1, evidence.endLine)
           .join("\n")
       : contents;
-  if (
-    !target.includes(quote) &&
-    !compactWhitespace(target).includes(compactWhitespace(quote))
-  ) {
+  if (!target.includes(quote) && !compactWhitespace(target).includes(compactWhitespace(quote))) {
     throwMalformed(`evidence quote does not match file contents: ${evidence.path}`);
   }
 }
