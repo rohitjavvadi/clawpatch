@@ -463,7 +463,7 @@ async function runCodexJson(
     const result = await runCommandArgs("codex", args, root, prompt);
     if (result.exitCode !== 0) {
       throw new ClawpatchError(
-        `codex provider failed: ${result.stderr || result.stdout}`,
+        codexFailureMessage(result.stdout, result.stderr),
         providerExitCode(result.stderr),
         "provider-failure",
       );
@@ -476,6 +476,14 @@ async function runCodexJson(
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+function codexFailureMessage(stdout: string, stderr: string): string {
+  const output = stderr || stdout;
+  const scopeAdvice = /api\.responses\.write|insufficient permissions|missing scopes/iu.test(output)
+    ? "\nCodex/OpenAI auth is missing Responses API write access (`api.responses.write`). Check the active credentials, organization/project role, and restricted key scopes."
+    : "";
+  return `codex provider failed: ${output}${scopeAdvice}`;
 }
 
 function addCodexSandboxArgs(args: string[], sandbox: string): void {
@@ -983,6 +991,7 @@ export const __testing = {
   acpxFailureMessage,
   addCodexModelArgs,
   addCodexSandboxArgs,
+  codexFailureMessage,
   extractAcpxJson,
   extractOpencodeJson,
   parseAcpxAgent,

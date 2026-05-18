@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { ClawpatchError } from "./errors.js";
 import { __testing, extractJson, providerByName } from "./provider.js";
-import { reviewOutputSchema } from "./types.js";
+import { revalidateOutputSchema, reviewOutputSchema } from "./types.js";
 
 // eslint-disable-next-line no-underscore-dangle
 const {
   addCodexSandboxArgs,
   addCodexModelArgs,
   acpxFailureMessage,
+  codexFailureMessage,
   extractAcpxJson,
   extractOpencodeJson,
   parseAcpxAgent,
@@ -218,6 +219,18 @@ describe("providerJsonSchema", () => {
       ]),
     );
   });
+
+  it("keeps enum properties typed for Codex strict schemas", () => {
+    for (const schema of [
+      providerJsonSchema(reviewOutputSchema),
+      providerJsonSchema(revalidateOutputSchema),
+    ]) {
+      const enumNodes = enumSchemaNodes(schema);
+
+      expect(enumNodes.length).toBeGreaterThan(0);
+      expect(enumNodes.every((node) => node["type"] === "string")).toBe(true);
+    }
+  });
 });
 
 describe("piThinkingLevel", () => {
@@ -239,6 +252,31 @@ function schemaKeys(value: unknown): string[] {
   }
   return Object.entries(value).flatMap(([key, item]) => [key, ...schemaKeys(item)]);
 }
+
+function enumSchemaNodes(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) {
+    return value.flatMap(enumSchemaNodes);
+  }
+  if (typeof value !== "object" || value === null) {
+    return [];
+  }
+  const node = value as Record<string, unknown>;
+  const nested = Object.values(node).flatMap(enumSchemaNodes);
+  return Array.isArray(node["enum"]) ? [node, ...nested] : nested;
+}
+
+describe("codexFailureMessage", () => {
+  it("adds scope guidance for missing Responses API write permission", () => {
+    const message = codexFailureMessage(
+      "",
+      "401 Unauthorized: Missing scopes: api.responses.write.",
+    );
+
+    expect(message).toContain("codex provider failed");
+    expect(message).toContain("api.responses.write");
+    expect(message).toContain("restricted key scopes");
+  });
+});
 
 describe("parseAcpxAgent", () => {
   it("defaults null model to codex/null", () => {

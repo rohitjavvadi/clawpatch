@@ -618,6 +618,46 @@ describe("workflow", () => {
     });
   });
 
+  it("defaults review --since to all touched features when --limit is omitted", async () => {
+    const root = await sinceFixture("clawpatch-since-default-limit-");
+    const context = await makeContext(testOptions(root));
+
+    await initCommand(context, {});
+    await mapCommand(context);
+    await writeFixture(root, "src/two.ts", "export const two = 'changed';\n");
+    await writeFixture(root, "src/three.ts", "export const three = 'changed';\n");
+    await commitAll(root, "change two and three");
+    const paths = statePaths(join(root, ".clawpatch"));
+    const features = await readFeatures(paths);
+    const expected = expectedFeatureIds(features, new Set(["src/two.ts", "src/three.ts"]), true);
+    const reviewed = await reviewCommand(context, {
+      since: "base",
+      dryRun: true,
+    });
+
+    expect(reviewed).toMatchObject({ dryRun: true, featureIds: expected });
+    expect((reviewed as { featureIds: string[] }).featureIds.length).toBeGreaterThan(1);
+  });
+
+  it("keeps explicit invalid review --since limits capped to one feature", async () => {
+    const root = await sinceFixture("clawpatch-since-invalid-limit-");
+    const context = await makeContext(testOptions(root));
+
+    await initCommand(context, {});
+    await mapCommand(context);
+    await writeFixture(root, "src/two.ts", "export const two = 'changed';\n");
+    await writeFixture(root, "src/three.ts", "export const three = 'changed';\n");
+    await commitAll(root, "change two and three");
+    const reviewed = await reviewCommand(context, {
+      since: "base",
+      limit: "0",
+      dryRun: true,
+    });
+
+    expect(reviewed).toMatchObject({ dryRun: true, wouldReview: 1 });
+    expect((reviewed as { featureIds: string[] }).featureIds).toHaveLength(1);
+  });
+
   it("runs review --since through the CLI entrypoint", async () => {
     const root = await sinceFixture("clawpatch-since-cli-");
     await runCli(["--root", root, "--json", "--quiet", "init"]);
