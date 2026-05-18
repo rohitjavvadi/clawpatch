@@ -1071,11 +1071,27 @@ export async function openPrCommand(
   const body = renderPatchPrBody(patch, linkedFindings);
   const gitFiles = gitRelativePatchFiles(git.root, loaded.root, patch.filesChanged);
   const draft = flags["draft"] === true;
+  const dryRunStagePlan =
+    flags["dryRun"] === true && patch.git.commitSha === null
+      ? await patchStagePlan(
+          git.root,
+          await assertPatchWorktree(patch, git.root, loaded.paths.stateDir, gitFiles, force),
+        )
+      : null;
   const branchExists =
     flags["dryRun"] === true && patch.git.commitSha === null
       ? await localBranchExists(git.root, branch)
       : false;
-  const commands = plannedPrCommands(patch, branch, base, title, gitFiles, draft, branchExists);
+  const commands = plannedPrCommands(
+    patch,
+    branch,
+    base,
+    title,
+    gitFiles,
+    draft,
+    branchExists,
+    dryRunStagePlan,
+  );
   if (flags["dryRun"] === true) {
     return {
       dryRun: true,
@@ -1096,7 +1112,6 @@ export async function openPrCommand(
     gitFiles,
     force,
   );
-  const { commitFiles } = patchWorktree;
   let commitSha = patch.git.commitSha;
   if (commitSha === null) {
     if (git.currentBranch !== branch) {
@@ -1105,22 +1120,22 @@ export async function openPrCommand(
         : ["switch", "-c", branch];
       await checkedRun("git switch", runCommandArgs("git", switchArgs, git.root));
     }
-    const stagedOnlyFiles = new Set(patchWorktree.stagedOnlyFiles);
-    const stageableFiles = commitFiles.filter((file) => !stagedOnlyFiles.has(file));
-    const addFiles = await existingGitFiles(git.root, stageableFiles);
-    const updateFiles = stageableFiles.filter((file) => !addFiles.includes(file));
-    if (addFiles.length > 0) {
-      await checkedRun("git add", runCommandArgs("git", ["add", "--", ...addFiles], git.root));
+    const stagePlan = await patchStagePlan(git.root, patchWorktree);
+    if (stagePlan.addFiles.length > 0) {
+      await checkedRun(
+        "git add",
+        runCommandArgs("git", ["add", "--", ...stagePlan.addFiles], git.root),
+      );
     }
-    if (updateFiles.length > 0) {
+    if (stagePlan.updateFiles.length > 0) {
       await checkedRun(
         "git add -u",
-        runCommandArgs("git", ["add", "-u", "--", ...updateFiles], git.root),
+        runCommandArgs("git", ["add", "-u", "--", ...stagePlan.updateFiles], git.root),
       );
     }
     await checkedRun(
       "git commit",
-      runCommandArgs("git", ["commit", "-m", title, "--", ...commitFiles], git.root),
+      runCommandArgs("git", ["commit", "-m", title, "--", ...stagePlan.commitFiles], git.root),
     );
     const commit = await checkedRun(
       "git rev-parse",
@@ -1473,12 +1488,21 @@ function plannedPrCommands(
   gitFiles: string[],
   draft: boolean,
   branchExists: boolean,
+  stagePlan: PatchStagePlan | null,
 ): string[] {
   const commands: string[] = [];
   if (patch.git.commitSha === null) {
+    const commitFiles = stagePlan?.commitFiles ?? gitFiles;
+    const addFiles = stagePlan?.addFiles ?? gitFiles;
+    const updateFiles = stagePlan?.updateFiles ?? [];
     commands.push(branchExists ? `git switch ${shellArg(branch)}` : `git switch -c ${shellArg(branch)}`);
-    commands.push(`git add -- ${gitFiles.map(shellArg).join(" ")}`);
-    commands.push(`git commit -m ${shellArg(title)} -- ${gitFiles.map(shellArg).join(" ")}`);
+    if (addFiles.length > 0) {
+      commands.push(`git add -- ${addFiles.map(shellArg).join(" ")}`);
+    }
+    if (updateFiles.length > 0) {
+      commands.push(`git add -u -- ${updateFiles.map(shellArg).join(" ")}`);
+    }
+    commands.push(`git commit -m ${shellArg(title)} -- ${commitFiles.map(shellArg).join(" ")}`);
   }
   commands.push(`git push -u origin ${shellArg(branch)}`);
   commands.push(`gh ${prCreateArgs(base, branch, title, draft).map(shellArg).join(" ")}`);
@@ -1560,6 +1584,23 @@ async function assertPatchWorktree(
     );
   }
   return { commitFiles: [...commitFiles], stagedOnlyFiles: [...stagedOnlyFiles] };
+}
+
+type PatchStagePlan = {
+  commitFiles: string[];
+  addFiles: string[];
+  updateFiles: string[];
+};
+
+async function patchStagePlan(
+  root: string,
+  patchWorktree: { commitFiles: string[]; stagedOnlyFiles: string[] },
+): Promise<PatchStagePlan> {
+  const stagedOnlyFiles = new Set(patchWorktree.stagedOnlyFiles);
+  const stageableFiles = patchWorktree.commitFiles.filter((file) => !stagedOnlyFiles.has(file));
+  const addFiles = await existingGitFiles(root, stageableFiles);
+  const updateFiles = stageableFiles.filter((file) => !addFiles.includes(file));
+  return { commitFiles: patchWorktree.commitFiles, addFiles, updateFiles };
 }
 
 type GitStatusChange = {
