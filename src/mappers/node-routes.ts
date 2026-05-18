@@ -339,7 +339,10 @@ function expressRouterImportBindingNames(source: string): Set<string> {
   pattern.lastIndex = 0;
   for (const match of source.matchAll(pattern)) {
     const importIndex = match.index ?? 0;
-    if (isInsideCommentOrString(source, importIndex)) {
+    if (
+      isInsideCommentOrString(source, importIndex) ||
+      !isImportDeclarationStart(source, importIndex)
+    ) {
       continue;
     }
     const clause = readExpressStaticImportClause(source, importIndex);
@@ -551,6 +554,33 @@ function isIdentifierChar(char: string | undefined): boolean {
 
 function isImportClauseStart(char: string | undefined): boolean {
   return char !== undefined && (char === "{" || char === "*" || /[A-Za-z_$]/u.test(char));
+}
+
+function isImportDeclarationStart(source: string, importIndex: number): boolean {
+  let cursor = importIndex - 1;
+  while (cursor >= 0) {
+    const char = source[cursor];
+    if (char === " " || char === "\t" || char === "\r" || char === "\uFEFF") {
+      cursor -= 1;
+      continue;
+    }
+    if (char === "\n") {
+      return true;
+    }
+    if (char === "/" && source[cursor - 1] === "*") {
+      const open = source.lastIndexOf("/*", cursor - 2);
+      if (open < 0) {
+        return false;
+      }
+      if (source.slice(open, cursor + 1).includes("\n")) {
+        return true;
+      }
+      cursor = open - 1;
+      continue;
+    }
+    return char === ";";
+  }
+  return true;
 }
 
 function skipWhitespace(source: string, start: number): number {

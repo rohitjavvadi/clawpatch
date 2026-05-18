@@ -700,7 +700,13 @@ export function extractOpencodeJson(stdout: string): unknown {
   }
   const parsed = extractJson(combined);
   if (parsed === null) {
-    throw new ClawpatchError("opencode provider produced unparsable JSON", 8, "malformed-output");
+    throw new ClawpatchError(
+      `opencode provider produced unparsable JSON ` +
+        `(text chars=${combined.length}, observed event kinds: ` +
+        `[${[...observedKinds].join(", ")}], output preview: ${safeProviderPreview(combined)})`,
+      8,
+      "malformed-output",
+    );
   }
   return parsed;
 }

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { ClawpatchError } from "./errors.js";
 import { __testing, extractJson, providerByName } from "./provider.js";
+import { safeProviderPreview } from "./provider-json.js";
 import { revalidateOutputSchema, reviewOutputSchema } from "./types.js";
 
 // eslint-disable-next-line no-underscore-dangle
@@ -53,6 +54,10 @@ function expectMalformed(fn: () => unknown, message: RegExp): void {
     return;
   }
   throw new Error("expected malformed-output");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 describe("extractJson", () => {
@@ -482,6 +487,46 @@ describe("extractOpencodeJson", () => {
     const stdout = JSON.stringify({ type: "step_finish", part: { reason: "stop" } });
 
     expectMalformed(() => extractOpencodeJson(stdout), /no extractable text.*step_finish/u);
+  });
+
+  it("treats whitespace-only opencode text as no extractable text", () => {
+    const stdout = [
+      JSON.stringify({ type: "text", part: { text: " \n\t " } }),
+      JSON.stringify({ type: "step_finish", part: { reason: "stop" } }),
+    ].join("\n");
+
+    expectMalformed(() => extractOpencodeJson(stdout), /no extractable text.*text, step_finish/u);
+  });
+
+  it("throws malformed-output with a preview when opencode text is unparsable", () => {
+    const stdout = [
+      JSON.stringify({
+        type: "text",
+        part: { text: '{"findings": [' },
+      }),
+      JSON.stringify({ type: "step_finish", part: { reason: "stop" } }),
+    ].join("\n");
+
+    expectMalformed(
+      () => extractOpencodeJson(stdout),
+      /unparsable JSON.*text chars=14.*observed event kinds: \[text, step_finish\].*output preview: \{"findings": \[/u,
+    );
+  });
+
+  it("bounds the opencode unparsable text preview", () => {
+    const text = `{"findings":["${"x".repeat(300)}`;
+    const stdout = JSON.stringify({
+      type: "text",
+      part: { text },
+    });
+    const preview = safeProviderPreview(text);
+
+    expect(preview.length).toBe(200);
+
+    expectMalformed(
+      () => extractOpencodeJson(stdout),
+      new RegExp(`output preview: ${escapeRegExp(preview)}\\)`, "u"),
+    );
   });
 
   it("throws provider-failure for opencode error events", () => {

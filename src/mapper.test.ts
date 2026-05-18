@@ -1816,6 +1816,7 @@ describe("mapFeatures", () => {
         "",
         "const config = { import: true }",
         "export type { Router as ExportedTypeRouter } from 'express';",
+        "const importPattern = /import { Router as RegexImportRouter } from 'express'/;",
         "const app = express();",
         "const otherRouter = OtherRouter();",
         "const commentedOutRouter = CommentedOutRouter();",
@@ -1827,6 +1828,7 @@ describe("mapFeatures", () => {
         "const fromBindingRouter = FromBindingRouter();",
         "const commentedTypeRouter = CommentedTypeRouter();",
         "const exportedTypeRouter = ExportedTypeRouter();",
+        "const regexImportRouter = RegexImportRouter();",
         "const typedRouter: Router = Router();",
         "const projectRouter = Router({ mergeParams: true });",
         "let hitCount = 0;",
@@ -1847,6 +1849,7 @@ describe("mapFeatures", () => {
         "fromBindingRouter.get('/from-binding-router', listFromBindingRouter);",
         "commentedTypeRouter.get('/commented-type-router', ignoredCommentedTypeRouter);",
         "exportedTypeRouter.get('/exported-type-router', ignoredExportedTypeRouter);",
+        "regexImportRouter.get('/regex-import-router', ignoredRegexImportRouter);",
         "router.post<{ Body: CreateJob }>('/typed-jobs', createTypedJob);",
         "typedRouter.patch('/typed/:id', updateTyped);",
         "router.route('/users').get(listUsers).delete(deleteUsers);",
@@ -1874,6 +1877,7 @@ describe("mapFeatures", () => {
         "function listFromBindingRouter() {}",
         "function ignoredCommentedTypeRouter() {}",
         "function ignoredExportedTypeRouter() {}",
+        "function ignoredRegexImportRouter() {}",
         "function createTypedJob() {}",
         "function updateTyped() {}",
         "function listUsers() {}",
@@ -1977,14 +1981,30 @@ describe("mapFeatures", () => {
     await writeFixture(root, "src/hono.test.ts", "test('hono', () => {});\n");
     await writeFixture(
       root,
+      "src/bom-router.ts",
+      [
+        "\uFEFFimport { Router as BomRouter } from 'express';",
+        "",
+        "const bomRouter = BomRouter();",
+        "bomRouter.get('/bom-router', listBomRouter);",
+        "function listBomRouter() {}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
       "src/mixed.tsx",
       [
         "import express from 'express';",
         "",
         "const app = express();",
         "const view = <div></div>;",
+        "const docs = <code>import { Router as JsxImportRouter } from 'express'</code>;",
+        "const jsxImportRouter = JsxImportRouter();",
         "app.get('/after-jsx-close', afterJsxClose);",
+        "jsxImportRouter.get('/jsx-import-router', ignoredJsxImportRouter);",
         "function afterJsxClose() {}",
+        "function ignoredJsxImportRouter() {}",
         "",
       ].join("\n"),
     );
@@ -2061,6 +2081,7 @@ describe("mapFeatures", () => {
         "Express route DELETE /users",
         "Express route GET /reports",
         "Express route GET /projects/:projectId/items",
+        "Express route GET /bom-router",
         "Express route GET /after-jsx-close",
         "Express route GET /custom-file-real",
         "Fastify route GET /status",
@@ -2081,6 +2102,8 @@ describe("mapFeatures", () => {
     expect(titles).not.toContain("Express route GET /commented-out-router");
     expect(titles).not.toContain("Express route GET /commented-type-router");
     expect(titles).not.toContain("Express route GET /exported-type-router");
+    expect(titles).not.toContain("Express route GET /regex-import-router");
+    expect(titles).not.toContain("Express route GET /jsx-import-router");
     expect(titles).not.toContain("Express route GET /custom-import-router");
     expect(titles).not.toContain("Express route GET /custom-router");
     expect(titles).not.toContain("Express route GET /custom-alias-router");
