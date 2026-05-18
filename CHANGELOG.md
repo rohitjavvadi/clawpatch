@@ -10,6 +10,7 @@
 - Added `clawpatch review --export-tribunal-ledger` to emit review findings as JSONL for downstream ledger ingestion, thanks @dpdanpittman.
 - Added `clawpatch review --prompt-file` to append extra reviewer guidance from a file or stdin, thanks @dpdanpittman.
 - Added deterministic Express, Fastify, and Hono route mapping for Node projects, thanks @rohitjavvadi.
+- Added conservative Django `urls.py` route mapping for `path`, `re_path`, and legacy `url` declarations, thanks @rohitjavvadi.
 - Fixed provider commands with relative `--root` paths by canonicalizing explicit roots before invoking Codex or other providers.
 - Added first-pass Elixir Mix/Phoenix mapping for project metadata, contexts, Phoenix web slices, runtime config, Ecto migrations, project scripts, ExUnit tests, and Mix validation defaults, thanks @tears-mysthrala.
 - Improved `clawpatch fix` handoff context and patch-attempt changed-file auditing for dirty-worktree fixes.
