@@ -289,6 +289,7 @@ async function detectPackageManagers(root: string): Promise<string[]> {
     ["pnpm", "pnpm-lock.yaml"],
     ["npm", "package-lock.json"],
     ["yarn", "yarn.lock"],
+    ["bun", "bun.lock"],
     ["bun", "bun.lockb"],
   ];
   for (const [name, file] of nodeChecks) {

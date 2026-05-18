@@ -327,6 +327,53 @@ describe("mapFeatures", () => {
     ]);
   });
 
+  it("uses bun workspace commands when the root has a text bun lockfile", async () => {
+    const root = await fixtureRoot("clawpatch-task-graph-bun-lock-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify(
+        {
+          name: "workspace-root",
+          packageManager: "bun@1.3.3",
+          workspaces: ["apps/*"],
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(root, "bun.lock", "");
+    await writeFixture(
+      root,
+      "apps/web/package.json",
+      JSON.stringify(
+        {
+          name: "web",
+          scripts: { test: "vitest run", build: "next build" },
+          dependencies: { next: "1.0.0" },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "apps/web/app/page.tsx",
+      "export default function Page() { return null; }\n",
+    );
+    await writeFixture(root, "apps/web/app/page.test.tsx", "test('page', () => {});\n");
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const route = result.features.find((feature) => feature.title === "web route /");
+
+    expect(project.detected.packageManagers).toContain("bun");
+    expect(project.detected.commands.test).toBeNull();
+    expect(route?.tests).toEqual([
+      { path: "apps/web/app/page.test.tsx", command: "bun --cwd apps/web run test" },
+    ]);
+  });
+
   it("keeps Nx target commands on the workspace package manager", async () => {
     const root = await fixtureRoot("clawpatch-map-nx-root-package-manager-");
     await writeFixture(
@@ -3236,7 +3283,7 @@ describe("mapFeatures", () => {
 
   it("uses bun run for root React package scripts", async () => {
     const root = await fixtureRoot("clawpatch-react-root-bun-");
-    await writeFixture(root, "bun.lockb", "");
+    await writeFixture(root, "bun.lock", "");
     await writeFixture(
       root,
       "package.json",

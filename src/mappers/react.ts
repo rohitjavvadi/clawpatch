@@ -259,6 +259,7 @@ async function hasPackageManagerMarker(root: string, packageRoot: string): Promi
     (await pathExists(join(root, packageRoot, "pnpm-workspace.yaml"))) ||
     (await pathExists(join(root, packageRoot, "package-lock.json"))) ||
     (await pathExists(join(root, packageRoot, "yarn.lock"))) ||
+    (await pathExists(join(root, packageRoot, "bun.lock"))) ||
     (await pathExists(join(root, packageRoot, "bun.lockb")))
   );
 }

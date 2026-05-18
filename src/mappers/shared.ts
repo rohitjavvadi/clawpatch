@@ -279,7 +279,7 @@ export async function detectNodePackageManager(root: string): Promise<string> {
   if (await pathExists(join(root, "yarn.lock"))) {
     return "yarn";
   }
-  if (await pathExists(join(root, "bun.lockb"))) {
+  if ((await pathExists(join(root, "bun.lock"))) || (await pathExists(join(root, "bun.lockb")))) {
     return "bun";
   }
   return "npm";

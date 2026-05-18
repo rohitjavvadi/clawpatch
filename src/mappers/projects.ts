@@ -125,6 +125,7 @@ async function nodePackageManagerForPackage(
     "pnpm-lock.yaml",
     "pnpm-workspace.yaml",
     "yarn.lock",
+    "bun.lock",
     "bun.lockb",
     "package-lock.json",
   ]) {
@@ -662,7 +663,7 @@ async function detectNodePackageManager(root: string): Promise<string> {
   if (await pathExists(join(root, "yarn.lock"))) {
     return "yarn";
   }
-  if (await pathExists(join(root, "bun.lockb"))) {
+  if ((await pathExists(join(root, "bun.lock"))) || (await pathExists(join(root, "bun.lockb")))) {
     return "bun";
   }
   return "npm";
