@@ -234,7 +234,7 @@ How the Cursor provider works:
   either `CURSOR_API_KEY` or the user's existing Cursor login/keychain state can
   be used. Clawpatch also sets `NO_OPEN_BROWSER=1` to reduce browser prompts
   during headless runs.
-- Timeout: 180 seconds by default, override with
+- Timeout: 300 seconds by default, override with
   `CLAWPATCH_CURSOR_TIMEOUT_MS` or `CLAWPATCH_PROVIDER_TIMEOUT_MS`
 - Advisory handling: semver-like Cursor versions below `2.5.0` are blocked for
   CVE-2026-26268 / GHSA-8pcm-8jpx-hv8r

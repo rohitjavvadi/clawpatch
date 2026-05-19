@@ -201,7 +201,7 @@ const grokProvider: Provider = {
 };
 
 const PI_DEFAULT_TIMEOUT_MS = 180_000;
-const CURSOR_DEFAULT_TIMEOUT_MS = 180_000;
+const CURSOR_DEFAULT_TIMEOUT_MS = 300_000;
 const CURSOR_POSITIONAL_PROMPT_MAX_BYTES = 128_000;
 const CURSOR_MIN_SAFE_APP_VERSION = "2.5.0";
 const CURSOR_DARWIN_INFO_PLIST = "/Applications/Cursor.app/Contents/Info.plist";
@@ -1388,6 +1388,7 @@ export const __testing = {
   cursorAgentArgs,
   cursorEnv,
   cursorFailureMessage,
+  cursorTimeoutMs,
   extractCursorJson,
   extractAcpxJson,
   extractOpencodeJson,

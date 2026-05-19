@@ -14,6 +14,7 @@ const {
   cursorAgentArgs,
   cursorEnv,
   cursorFailureMessage,
+  cursorTimeoutMs,
   extractAcpxJson,
   extractCursorJson,
   extractOpencodeJson,
@@ -255,6 +256,22 @@ describe("piThinkingLevel", () => {
 });
 
 describe("Cursor provider", () => {
+  const originalCursorTimeout = process.env["CLAWPATCH_CURSOR_TIMEOUT_MS"];
+  const originalProviderTimeout = process.env["CLAWPATCH_PROVIDER_TIMEOUT_MS"];
+
+  afterEach(() => {
+    if (originalCursorTimeout === undefined) {
+      delete process.env["CLAWPATCH_CURSOR_TIMEOUT_MS"];
+    } else {
+      process.env["CLAWPATCH_CURSOR_TIMEOUT_MS"] = originalCursorTimeout;
+    }
+    if (originalProviderTimeout === undefined) {
+      delete process.env["CLAWPATCH_PROVIDER_TIMEOUT_MS"];
+    } else {
+      process.env["CLAWPATCH_PROVIDER_TIMEOUT_MS"] = originalProviderTimeout;
+    }
+  });
+
   it("builds the verified trusted read-only print JSON command shape", () => {
     const args = cursorAgentArgs(
       "/repo",
@@ -427,6 +444,13 @@ describe("Cursor provider", () => {
     expect(cursorEnv()).toEqual({
       NO_OPEN_BROWSER: "1",
     });
+  });
+
+  it("uses a 300 second default timeout for Cursor", () => {
+    delete process.env["CLAWPATCH_CURSOR_TIMEOUT_MS"];
+    delete process.env["CLAWPATCH_PROVIDER_TIMEOUT_MS"];
+
+    expect(cursorTimeoutMs()).toBe(300_000);
   });
 
   it("parses semver for Cursor advisory checks", () => {
