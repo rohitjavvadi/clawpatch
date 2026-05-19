@@ -199,7 +199,8 @@ For untrusted code, run `clawpatch fix --provider pi` inside an isolated checkou
 ## Cursor
 
 The `cursor` provider shells out to the local Cursor Agent CLI in headless print
-mode.
+mode. It is experimental and disabled for `map`, `review`, `fix`, and
+`revalidate` by default while HITL verification is incomplete.
 
 Verify local availability:
 
@@ -208,36 +209,41 @@ cursor-agent --version
 clawpatch doctor --provider cursor
 ```
 
-Provider selection:
+Experimental provider selection:
 
 ```bash
-clawpatch review --provider cursor
-CLAWPATCH_PROVIDER=cursor clawpatch review
-clawpatch fix --finding <id> --provider cursor --model <model>
+CURSOR_API_KEY=... CLAWPATCH_CURSOR_EXPERIMENTAL=1 clawpatch review --provider cursor
+CURSOR_API_KEY=... CLAWPATCH_CURSOR_EXPERIMENTAL=1 CLAWPATCH_PROVIDER=cursor clawpatch review
+CURSOR_API_KEY=... CLAWPATCH_CURSOR_EXPERIMENTAL=1 CLAWPATCH_CURSOR_ALLOW_WRITE=1 clawpatch fix --finding <id> --provider cursor --model <model>
 clawpatch doctor --provider cursor
 ```
 
 How the Cursor provider works:
 
-- Headless mode: `cursor-agent --trust -p --output-format json "<prompt>"`
+- Headless mode: `cursor-agent --trust -p --output-format json --workspace <root> "<prompt>"`
+- Read-only operations: also pass Cursor's documented `--mode ask`
 - Output: parses Cursor's `type: "result"` JSON envelope and then extracts the
   Clawpatch JSON object from the `result` text
 - Prompt delivery: currently uses the positional prompt path, capped at 128000
   UTF-8 bytes
 - Model selection: passes `--model <model>` when configured
 - Reasoning effort and `skipGitRepoCheck`: not mapped to Cursor CLI flags
+- Authentication: experimental execution requires `CURSOR_API_KEY`; Clawpatch
+  intentionally runs Cursor with an isolated temporary `HOME` and does not use
+  host-home Cursor login state
 - Timeout: 180 seconds by default, override with
   `CLAWPATCH_CURSOR_TIMEOUT_MS` or `CLAWPATCH_PROVIDER_TIMEOUT_MS`
 - Advisory handling: semver-like Cursor versions below `2.5.0` are blocked for
   CVE-2026-26268 / GHSA-8pcm-8jpx-hv8r
 
-Permission caveat: Cursor's JSON output is documented for print mode, but this
-provider does not claim provider-enforced read-only review/revalidate behavior.
-The implementation uses `--trust` for the explicit trusted-workspace path and
-never uses `--force` or `--yolo`. Complete the linked HITL verification before
-using this provider as evidence for an upstream provider PR, especially for
-ambient rules, MCP configuration, positional prompt exposure, and any claimed
-read-only mode.
+Permission caveat: Cursor's print mode is documented as having access to tools,
+including write and shell. Clawpatch therefore keeps Cursor execution behind
+`CLAWPATCH_CURSOR_EXPERIMENTAL=1`, uses `--mode ask` for read-only operations,
+and separately requires `CLAWPATCH_CURSOR_ALLOW_WRITE=1` for `fix`. The
+implementation uses `--trust` for the explicit trusted-workspace path and never
+uses `--force` or `--yolo`. Complete HITL verification before promoting this to
+default provider support, especially for ambient rules, MCP configuration,
+positional prompt exposure, timeout behavior, and any claimed read-only mode.
 
 Direct OpenAI API, local-model, and multi-model panel providers are not
 implemented yet. The `acpx` provider is the generic route for ACP-compatible

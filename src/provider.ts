@@ -205,6 +205,8 @@ const CURSOR_DEFAULT_TIMEOUT_MS = 180_000;
 const CURSOR_POSITIONAL_PROMPT_MAX_BYTES = 128_000;
 const CURSOR_MIN_SAFE_APP_VERSION = "2.5.0";
 const CURSOR_DARWIN_INFO_PLIST = "/Applications/Cursor.app/Contents/Info.plist";
+const CURSOR_EXPERIMENTAL_ENV = "CLAWPATCH_CURSOR_EXPERIMENTAL";
+const CURSOR_WRITE_ENV = "CLAWPATCH_CURSOR_ALLOW_WRITE";
 
 const piProvider: Provider = {
   name: "pi",
@@ -254,14 +256,18 @@ const cursorProvider: Provider = {
     return appVersion === null ? version : `${version} (Cursor app ${appVersion})`;
   },
   async map(root: string, prompt: string, options: ProviderOptions): Promise<AgentMapOutput> {
+    assertCursorProviderEnabled("map");
     const output = await runCursorJson(root, prompt, options, agentMapJsonSchema, true);
     return agentMapOutputSchema.parse(output);
   },
   async review(root: string, prompt: string, options: ProviderOptions): Promise<ReviewOutput> {
+    assertCursorProviderEnabled("review");
     const output = await runCursorJson(root, prompt, options, reviewJsonSchema, true);
     return reviewOutputSchema.parse(output);
   },
   async fix(root: string, prompt: string, options: ProviderOptions): Promise<FixPlanOutput> {
+    assertCursorProviderEnabled("fix");
+    assertCursorWriteEnabled();
     const output = await runCursorJson(root, prompt, options, fixPlanJsonSchema, false);
     return fixPlanOutputSchema.parse(output);
   },
@@ -270,6 +276,7 @@ const cursorProvider: Provider = {
     prompt: string,
     options: ProviderOptions,
   ): Promise<RevalidateOutput> {
+    assertCursorProviderEnabled("revalidate");
     const output = await runCursorJson(root, prompt, options, revalidateJsonSchema, true);
     return revalidateOutputSchema.parse(output);
   },
@@ -282,6 +289,7 @@ async function runCursorJson(
   schema: object,
   readOnly: boolean,
 ): Promise<unknown> {
+  assertCursorApiKeyAvailable();
   const fullPrompt = cursorPrompt(prompt, schema, readOnly);
   if (Buffer.byteLength(fullPrompt, "utf8") > CURSOR_POSITIONAL_PROMPT_MAX_BYTES) {
     throw new ClawpatchError(
@@ -290,7 +298,7 @@ async function runCursorJson(
       "invalid-usage",
     );
   }
-  const args = cursorAgentArgs(fullPrompt, options);
+  const args = cursorAgentArgs(root, fullPrompt, options, readOnly);
   const result = await runCursorAgent(root, args);
   if (result.exitCode !== 0) {
     throw new ClawpatchError(
@@ -302,8 +310,16 @@ async function runCursorJson(
   return extractCursorJson(result.stdout);
 }
 
-function cursorAgentArgs(prompt: string, options: ProviderOptions): string[] {
-  const args = ["--trust", "-p", "--output-format", "json"];
+function cursorAgentArgs(
+  root: string,
+  prompt: string,
+  options: ProviderOptions,
+  readOnly: boolean,
+): string[] {
+  const args = ["--trust", "-p", "--output-format", "json", "--workspace", root];
+  if (readOnly) {
+    args.push("--mode", "ask");
+  }
   if (options.model !== null) {
     args.push("--model", options.model);
   }
@@ -336,8 +352,7 @@ function cursorPrompt(prompt: string, schema: object, readOnly: boolean): string
     ? "READ-ONLY REVIEW MODE.\n" +
       "Do not modify, create, or delete any files.\n" +
       "Do not run shell commands.\n" +
-      "Cursor CLI headless read-only behavior is not provider-enforced unless HITL verification " +
-      "proves an installed-version read-only mode.\n\n" +
+      "The Cursor CLI also receives --mode ask for this read-only request.\n\n" +
       prompt
     : prompt;
   return `${promptBody}
@@ -440,6 +455,39 @@ function cursorFailureMessage(stdout: string, stderr: string, exitCode: number |
   return `cursor provider failed with exit code ${exitCode ?? "unknown"}`;
 }
 
+function assertCursorProviderEnabled(operation: string): void {
+  if (process.env[CURSOR_EXPERIMENTAL_ENV] === "1") {
+    return;
+  }
+  throw new ClawpatchError(
+    `cursor provider ${operation} is experimental and disabled by default; set ${CURSOR_EXPERIMENTAL_ENV}=1 after completing local HITL verification`,
+    2,
+    "unsupported-provider",
+  );
+}
+
+function assertCursorWriteEnabled(): void {
+  if (process.env[CURSOR_WRITE_ENV] === "1") {
+    return;
+  }
+  throw new ClawpatchError(
+    `cursor provider fix is disabled until write-mode HITL verification passes; set ${CURSOR_WRITE_ENV}=1 only in an isolated checkout`,
+    2,
+    "unsupported-provider",
+  );
+}
+
+function assertCursorApiKeyAvailable(): void {
+  if ((process.env["CURSOR_API_KEY"] ?? "").trim().length > 0) {
+    return;
+  }
+  throw new ClawpatchError(
+    "cursor provider requires CURSOR_API_KEY for isolated headless execution; host HOME authentication is intentionally not used",
+    4,
+    "provider-auth",
+  );
+}
+
 function cursorTimeoutMs(): number {
   const raw =
     process.env["CLAWPATCH_CURSOR_TIMEOUT_MS"] ?? process.env["CLAWPATCH_PROVIDER_TIMEOUT_MS"];
@@ -457,16 +505,7 @@ function cursorEnv(paths: {
   xdgData: string;
   temp: string;
 }): NodeJS.ProcessEnv {
-  const allowed = [
-    "PATH",
-    "USER",
-    "LOGNAME",
-    "SHELL",
-    "LANG",
-    "LC_ALL",
-    "CURSOR_API_KEY",
-    "CURSOR_AGENT_API_KEY",
-  ];
+  const allowed = ["PATH", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "CURSOR_API_KEY"];
   return {
     ...Object.fromEntries(
       allowed.flatMap((name) => {

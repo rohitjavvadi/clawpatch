@@ -255,25 +255,76 @@ describe("piThinkingLevel", () => {
 });
 
 describe("Cursor provider", () => {
-  it("builds the verified trusted print JSON command shape", () => {
-    const args = cursorAgentArgs("prompt", {
-      model: "cursor-model",
-      reasoningEffort: "xhigh",
-      skipGitRepoCheck: true,
-    });
+  it("builds the verified trusted read-only print JSON command shape", () => {
+    const args = cursorAgentArgs(
+      "/repo",
+      "prompt",
+      {
+        model: "cursor-model",
+        reasoningEffort: "xhigh",
+        skipGitRepoCheck: true,
+      },
+      true,
+    );
 
     expect(args).toEqual([
       "--trust",
       "-p",
       "--output-format",
       "json",
+      "--workspace",
+      "/repo",
+      "--mode",
+      "ask",
       "--model",
       "cursor-model",
       "prompt",
     ]);
     expect(args).not.toContain("--force");
     expect(args).not.toContain("--yolo");
-    expect(args).not.toContain("--mode");
+  });
+
+  it("leaves write-mode Cursor execution ungated by read-only mode flags", () => {
+    const args = cursorAgentArgs(
+      "/repo",
+      "prompt",
+      {
+        model: null,
+        reasoningEffort: null,
+        skipGitRepoCheck: false,
+      },
+      false,
+    );
+
+    expect(args).toEqual([
+      "--trust",
+      "-p",
+      "--output-format",
+      "json",
+      "--workspace",
+      "/repo",
+      "prompt",
+    ]);
+  });
+
+  it("keeps Cursor provider execution disabled by default", async () => {
+    const originalExperimental = process.env["CLAWPATCH_CURSOR_EXPERIMENTAL"];
+    delete process.env["CLAWPATCH_CURSOR_EXPERIMENTAL"];
+    try {
+      await expect(
+        providerByName("cursor").review("/repo", "prompt", {
+          model: null,
+          reasoningEffort: null,
+          skipGitRepoCheck: false,
+        }),
+      ).rejects.toThrow(/experimental and disabled by default/u);
+    } finally {
+      if (originalExperimental === undefined) {
+        delete process.env["CLAWPATCH_CURSOR_EXPERIMENTAL"];
+      } else {
+        process.env["CLAWPATCH_CURSOR_EXPERIMENTAL"] = originalExperimental;
+      }
+    }
   });
 
   it("extracts Clawpatch JSON from the Cursor success envelope result", () => {
@@ -374,10 +425,10 @@ describe("Cursor provider", () => {
 
   it("keeps Cursor subprocess environment to an exact allowlist", () => {
     const originalSecret = process.env["CURSOR_RANDOM_SECRET"];
-    const originalApiKey = process.env["CURSOR_AGENT_API_KEY"];
+    const originalApiKey = process.env["CURSOR_API_KEY"];
     const originalHome = process.env["HOME"];
     process.env["CURSOR_RANDOM_SECRET"] = "nope";
-    process.env["CURSOR_AGENT_API_KEY"] = "ok";
+    process.env["CURSOR_API_KEY"] = "ok";
     try {
       const env = cursorEnv({
         home: "/tmp/clawpatch-cursor/home",
@@ -387,7 +438,8 @@ describe("Cursor provider", () => {
         temp: "/tmp/clawpatch-cursor/tmp",
       });
 
-      expect(env["CURSOR_AGENT_API_KEY"]).toBe("ok");
+      expect(env["CURSOR_API_KEY"]).toBe("ok");
+      expect(env["CURSOR_AGENT_API_KEY"]).toBeUndefined();
       expect(env["CURSOR_RANDOM_SECRET"]).toBeUndefined();
       expect(env["HOME"]).toBe("/tmp/clawpatch-cursor/home");
       expect(env["HOME"]).not.toBe(originalHome);
@@ -401,9 +453,9 @@ describe("Cursor provider", () => {
         process.env["CURSOR_RANDOM_SECRET"] = originalSecret;
       }
       if (originalApiKey === undefined) {
-        delete process.env["CURSOR_AGENT_API_KEY"];
+        delete process.env["CURSOR_API_KEY"];
       } else {
-        process.env["CURSOR_AGENT_API_KEY"] = originalApiKey;
+        process.env["CURSOR_API_KEY"] = originalApiKey;
       }
     }
   });
