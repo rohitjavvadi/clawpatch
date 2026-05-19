@@ -443,6 +443,7 @@ describe("Cursor provider", () => {
       expect(env["CURSOR_RANDOM_SECRET"]).toBeUndefined();
       expect(env["HOME"]).toBe("/tmp/clawpatch-cursor/home");
       expect(env["HOME"]).not.toBe(originalHome);
+      expect(env["NO_OPEN_BROWSER"]).toBe("1");
       expect(env["XDG_CONFIG_HOME"]).toBe("/tmp/clawpatch-cursor/xdg-config");
       expect(env["XDG_CACHE_HOME"]).toBe("/tmp/clawpatch-cursor/xdg-cache");
       expect(env["XDG_DATA_HOME"]).toBe("/tmp/clawpatch-cursor/xdg-data");

@@ -517,6 +517,7 @@ function cursorEnv(paths: {
     TMPDIR: paths.temp,
     TEMP: paths.temp,
     TMP: paths.temp,
+    NO_OPEN_BROWSER: "1",
     XDG_CONFIG_HOME: paths.xdgConfig,
     XDG_CACHE_HOME: paths.xdgCache,
     XDG_DATA_HOME: paths.xdgData,
