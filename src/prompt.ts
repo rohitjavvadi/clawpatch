@@ -117,22 +117,15 @@ export async function buildReviewPromptBundle(
     seenPromptFiles,
   );
   const tests = uniquePromptRefs(feature.tests, config.review.maxContextFiles, seenPromptFiles);
+  const includedPromptPaths = new Set([
+    ...owned.map((ref) => normalizePromptPath(ref.path)),
+    ...context.map((ref) => normalizePromptPath(ref.path)),
+    ...tests.map((ref) => normalizePromptPath(ref.path)),
+  ]);
   const omittedFiles = [
-    ...feature.ownedFiles.slice(config.review.maxOwnedFiles).map((ref) => ({
-      path: ref.path,
-      role: "owned" as const,
-      reason: "maxOwnedFiles",
-    })),
-    ...feature.contextFiles.slice(config.review.maxContextFiles).map((ref) => ({
-      path: ref.path,
-      role: "context" as const,
-      reason: "maxContextFiles",
-    })),
-    ...feature.tests.slice(config.review.maxContextFiles).map((ref) => ({
-      path: ref.path,
-      role: "test" as const,
-      reason: "maxContextFiles",
-    })),
+    ...omittedPromptRefs(feature.ownedFiles, "owned", "maxOwnedFiles", includedPromptPaths),
+    ...omittedPromptRefs(feature.contextFiles, "context", "maxContextFiles", includedPromptPaths),
+    ...omittedPromptRefs(feature.tests, "test", "maxContextFiles", includedPromptPaths),
   ];
   const fileBlocks: string[] = [];
   const includedFiles: ReviewPromptFileManifest[] = [];
@@ -294,13 +287,37 @@ function uniquePromptRefs<T extends { path: string }>(
     if (selected.length >= limit) {
       break;
     }
-    if (seen.has(ref.path)) {
+    const normalizedPath = normalizePromptPath(ref.path);
+    if (seen.has(normalizedPath)) {
       continue;
     }
-    seen.add(ref.path);
+    seen.add(normalizedPath);
     selected.push(ref);
   }
   return selected;
+}
+
+function omittedPromptRefs<T extends { path: string }>(
+  refs: readonly T[],
+  role: ReviewPromptFileRole,
+  reason: string,
+  includedPaths: ReadonlySet<string>,
+): Array<{ path: string; role: ReviewPromptFileRole; reason: string }> {
+  const omitted: Array<{ path: string; role: ReviewPromptFileRole; reason: string }> = [];
+  const seen = new Set<string>();
+  for (const ref of refs) {
+    const normalizedPath = normalizePromptPath(ref.path);
+    if (includedPaths.has(normalizedPath) || seen.has(normalizedPath)) {
+      continue;
+    }
+    seen.add(normalizedPath);
+    omitted.push({ path: ref.path, role, reason });
+  }
+  return omitted;
+}
+
+function normalizePromptPath(path: string): string {
+  return path.replace(/\\/gu, "/").replace(/^\.\/+/u, "");
 }
 
 function reviewModeInstructions(mode: ReviewMode): string {

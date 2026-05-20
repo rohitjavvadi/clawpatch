@@ -101,6 +101,67 @@ describe("review prompt provenance", () => {
       ]),
     );
   });
+
+  it("does not list duplicate-skipped included files as omitted", async () => {
+    const root = await fixtureRoot("clawpatch-prompt-duplicate-context-");
+    await writeFixture(root, "src/index.ts", "export const value = 1;\n");
+    await writeFixture(root, "src/context-one.ts", "export const one = 1;\n");
+    await writeFixture(root, "src/context-two.ts", "export const two = 1;\n");
+    await writeFixture(root, "src/context-three.ts", "export const three = 1;\n");
+    const duplicateFeature = {
+      ...feature(),
+      ownedFiles: [{ path: "src/index.ts", reason: "primary" }],
+      contextFiles: [
+        { path: "src/index.ts", reason: "duplicate owned file" },
+        { path: "src/context-one.ts", reason: "context" },
+        { path: "src/context-two.ts", reason: "context" },
+        { path: "src/context-three.ts", reason: "overflow" },
+      ],
+    };
+
+    const bundle = await buildReviewPromptBundle(root, project(root), duplicateFeature, {
+      ...defaultConfig(),
+      review: {
+        ...defaultConfig().review,
+        maxOwnedFiles: 1,
+        maxContextFiles: 2,
+      },
+    });
+
+    expect(bundle.prompt).toContain("--- src/context-two.ts (context, lines 1-1)");
+    expect(bundle.manifest.omittedFiles).toEqual([
+      { path: "src/context-three.ts", role: "context", reason: "maxContextFiles" },
+    ]);
+  });
+
+  it("de-duplicates equivalent prompt paths before applying limits", async () => {
+    const root = await fixtureRoot("clawpatch-prompt-normalized-duplicates-");
+    await writeFixture(root, "src/index.ts", "export const value = 1;\n");
+    await writeFixture(root, "src/next.ts", "export const next = 1;\n");
+    const duplicateFeature = {
+      ...feature(),
+      ownedFiles: [
+        { path: "src/index.ts", reason: "primary" },
+        { path: "./src/index.ts", reason: "duplicate spelling" },
+        { path: "src/next.ts", reason: "next real file" },
+      ],
+      contextFiles: [],
+    };
+
+    const bundle = await buildReviewPromptBundle(root, project(root), duplicateFeature, {
+      ...defaultConfig(),
+      review: {
+        ...defaultConfig().review,
+        maxOwnedFiles: 2,
+      },
+    });
+
+    expect(bundle.manifest.includedFiles.map((file) => file.path)).toEqual([
+      "src/index.ts",
+      "src/next.ts",
+    ]);
+    expect(bundle.manifest.omittedFiles).toEqual([]);
+  });
 });
 
 function project(root: string): ProjectRecord {

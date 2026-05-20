@@ -240,8 +240,10 @@ How the Cursor provider works:
   profile and trigger browser login prompts.
 - Timeout: 300 seconds by default, override with
   `CLAWPATCH_CURSOR_TIMEOUT_MS` or `CLAWPATCH_PROVIDER_TIMEOUT_MS`
-- Advisory handling: semver-like Cursor versions below `2.5.0` are blocked for
-  CVE-2026-26268 / GHSA-8pcm-8jpx-hv8r
+- Advisory handling: semver-like Cursor CLI versions below `2.5.0` are blocked
+  for CVE-2026-26268 / GHSA-8pcm-8jpx-hv8r. Date-formatted CLI builds are
+  allowed only when Clawpatch can verify a semver Cursor app version from the
+  local macOS app bundle.
 
 Permission caveat: Cursor's print mode is documented as having access to tools,
 including write and shell. Clawpatch therefore keeps Cursor execution behind

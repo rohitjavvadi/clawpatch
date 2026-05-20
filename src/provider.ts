@@ -484,23 +484,12 @@ const piProvider: Provider = {
 const cursorProvider: Provider = {
   name: "cursor",
   async check(root: string): Promise<string> {
-    const result = await runCursorAgent(root, ["--version"]);
-    if (result.exitCode !== 0) {
-      throw new ClawpatchError(
-        "cursor-agent CLI not available or not authenticated",
-        4,
-        "provider-auth",
-      );
-    }
-    const version = result.stdout.trim();
-    const appVersion = await cursorAppVersion();
-    assertCursorRuntimeVersionAllowed(version, appVersion);
-    return appVersion === null ? version : `${version} (Cursor app ${appVersion})`;
+    return await checkedCursorRuntimeVersion(root);
   },
   async map(root: string, prompt: string, options: ProviderOptions): Promise<AgentMapOutput> {
     assertCursorProviderEnabled("map");
     const output = await runCursorJson(root, prompt, options, agentMapJsonSchema, true);
-    return agentMapOutputSchema.parse(output);
+    return parseOrThrow(agentMapOutputSchema, output, "cursor agent-map");
   },
   async review(
     root: string,
@@ -515,7 +504,7 @@ const cursorProvider: Provider = {
     assertCursorProviderEnabled("fix");
     assertCursorWriteEnabled();
     const output = await runCursorJson(root, prompt, options, fixPlanJsonSchema, false);
-    return fixPlanOutputSchema.parse(output);
+    return parseOrThrow(fixPlanOutputSchema, output, "cursor fix-plan");
   },
   async revalidate(
     root: string,
@@ -524,7 +513,7 @@ const cursorProvider: Provider = {
   ): Promise<RevalidateOutput> {
     assertCursorProviderEnabled("revalidate");
     const output = await runCursorJson(root, prompt, options, revalidateJsonSchema, true);
-    return revalidateOutputSchema.parse(output);
+    return parseOrThrow(revalidateOutputSchema, output, "cursor revalidate");
   },
 };
 
@@ -535,6 +524,7 @@ async function runCursorJson(
   schema: object,
   readOnly: boolean,
 ): Promise<unknown> {
+  await checkedCursorRuntimeVersion(root);
   const fullPrompt = cursorPrompt(prompt, schema, readOnly);
   const args = cursorAgentArgs(root, options, readOnly);
   const result = await runCursorAgent(root, args, fullPrompt);
@@ -546,6 +536,21 @@ async function runCursorJson(
     );
   }
   return extractCursorJson(result.stdout);
+}
+
+async function checkedCursorRuntimeVersion(root: string): Promise<string> {
+  const result = await runCursorAgent(root, ["--version"]);
+  if (result.exitCode !== 0) {
+    throw new ClawpatchError(
+      "cursor-agent CLI not available or not authenticated",
+      4,
+      "provider-auth",
+    );
+  }
+  const version = result.stdout.trim();
+  const appVersion = await cursorAppVersion();
+  assertCursorRuntimeVersionAllowed(version, appVersion);
+  return appVersion === null ? version : `${version} (Cursor app ${appVersion})`;
 }
 
 function cursorAgentArgs(root: string, options: ProviderOptions, readOnly: boolean): string[] {
@@ -589,7 +594,7 @@ Cursor evidence rules:
 - If you provide startLine and endLine, copy them from the included file block and keep them inside that file's shown line range.
 - Do not use files outside the prompt excerpts as evidence.
 - Always set evidence.quote to null.
-- If you are unsure about an evidence line range, set startLine and endLine to null instead of guessing.`
+- Every evidence item must include startLine and endLine from the shown file block.`
       : "";
   return `${promptBody}${evidenceRules}
 
@@ -747,14 +752,16 @@ async function cursorAppVersion(): Promise<string | null> {
 
 function assertCursorRuntimeVersionAllowed(cliVersion: string, appVersion: string | null): void {
   const parsedCli = parseSemver(cliVersion);
-  const parsedApp = appVersion === null ? null : parseSemver(appVersion);
-  if (appVersion !== null && parsedApp !== null) {
-    assertCursorVersionAllowed(appVersion, parsedApp);
-    return;
-  }
-  if (parsedCli !== null && !isCursorDateBuildVersion(cliVersion)) {
+  if (parsedCli !== null) {
     assertCursorVersionAllowed(cliVersion, parsedCli);
     return;
+  }
+  if (isCursorDateBuildVersion(cliVersion) && appVersion !== null) {
+    const parsedApp = parseSemver(appVersion);
+    if (parsedApp !== null) {
+      assertCursorVersionAllowed(appVersion, parsedApp);
+      return;
+    }
   }
   throw new ClawpatchError(
     "cursor provider could not verify Cursor app/runtime version for CVE-2026-26268 / GHSA-8pcm-8jpx-hv8r",

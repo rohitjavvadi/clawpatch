@@ -534,6 +534,7 @@ describe("Cursor provider", () => {
     expect(prompt).toContain("Always set evidence.quote to null");
     expect(prompt).toContain("evidence.path must exactly match an included file path");
     expect(prompt).toContain("Do not use files outside the prompt excerpts as evidence");
+    expect(prompt).toContain("Every evidence item must include startLine and endLine");
   });
 
   it("does not add review evidence guidance to Cursor map prompts", () => {
@@ -553,6 +554,13 @@ describe("Cursor provider", () => {
   it("uses Cursor app version for date-formatted CLI builds", () => {
     expect(() => assertCursorRuntimeVersionAllowed("2026.05.16-0338208", "3.2.16")).not.toThrow();
     expect(() => assertCursorRuntimeVersionAllowed("2026.05.16-0338208", "2.4.9")).toThrow(
+      /blocked vulnerable Cursor version/u,
+    );
+  });
+
+  it("uses semver CLI versions as the authoritative runtime version", () => {
+    expect(() => assertCursorRuntimeVersionAllowed("2.5.0", "2.4.9")).not.toThrow();
+    expect(() => assertCursorRuntimeVersionAllowed("2.4.9", "3.2.16")).toThrow(
       /blocked vulnerable Cursor version/u,
     );
   });

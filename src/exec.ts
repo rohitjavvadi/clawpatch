@@ -66,23 +66,13 @@ export async function runCommandArgs(
   args: string[],
   cwd: string,
   input?: string,
-  options: {
-    trimOutput?: boolean;
-    env?: NodeJS.ProcessEnv;
-    timeoutMs?: number;
-    replaceEnv?: boolean;
-  } = {},
+  options: { trimOutput?: boolean; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {},
 ): Promise<CommandResult> {
   const started = Date.now();
   const spawnSpec = commandSpawnSpec(program, args);
   const child = spawn(spawnSpec.program, spawnSpec.args, {
     cwd,
-    env:
-      options.env === undefined
-        ? process.env
-        : options.replaceEnv === true
-          ? options.env
-          : { ...process.env, ...options.env },
+    env: options.env === undefined ? process.env : { ...process.env, ...options.env },
     detached: process.platform !== "win32" && options.timeoutMs !== undefined,
     shell: false,
     stdio: ["pipe", "pipe", "pipe"],

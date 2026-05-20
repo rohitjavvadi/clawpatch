@@ -89,6 +89,7 @@ async function validateFinding(
       throwMalformed(`evidence file was not readable in review context: ${evidence.path}`);
     }
     const contents = await fileContents(root, evidence.path, promptFile.truncated, cache);
+    assertVerifiableEvidence(evidence);
     assertLineRange(contents, evidence, promptFile);
     assertQuote(contents, evidence);
   }
@@ -116,6 +117,16 @@ function assertIncludedPath(path: string, included: ReadonlySet<string>, label: 
   assertSafePath(path, label);
   if (!included.has(normalized)) {
     throwMalformed(`${label} was not included in review context: ${path}`);
+  }
+}
+
+function assertVerifiableEvidence(
+  evidence: ReviewOutput["findings"][number]["evidence"][number],
+): void {
+  const hasLineRange = evidence.startLine !== null || evidence.endLine !== null;
+  const hasQuote = evidence.quote !== null && evidence.quote.trim().length > 0;
+  if (!hasLineRange && !hasQuote) {
+    throwMalformed(`evidence must include a line range or quote: ${evidence.path}`);
   }
 }
 

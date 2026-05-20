@@ -166,6 +166,21 @@ describe("validateReviewOutput", () => {
     ).rejects.toMatchObject({ code: "malformed-output" });
   });
 
+  it("rejects evidence without a line range or quote", async () => {
+    const root = await fixtureRoot("clawpatch-review-validation-empty-evidence-");
+    await writeFixture(root, "src/index.ts", "const value = 'TODO_BUG';\n");
+
+    await expect(
+      validateReviewOutput(
+        root,
+        feature("src/index.ts"),
+        defaultConfig(),
+        manifest("src/index.ts"),
+        output("src/index.ts", { startLine: null, endLine: null, quote: null }),
+      ),
+    ).rejects.toMatchObject({ code: "malformed-output" });
+  });
+
   it("rejects evidence that only exists beyond the truncated prompt text", async () => {
     const root = await fixtureRoot("clawpatch-review-validation-truncated-");
     await writeFixture(root, "src/index.ts", `${"a".repeat(24_000)}\nconst value = 'TODO_TAIL';\n`);
@@ -327,10 +342,10 @@ function output(
         evidence: [
           {
             path,
-            startLine: evidence.startLine ?? 1,
-            endLine: evidence.endLine ?? 1,
+            startLine: "startLine" in evidence ? evidence.startLine! : 1,
+            endLine: "endLine" in evidence ? evidence.endLine! : 1,
             symbol: null,
-            quote: evidence.quote ?? "TODO_BUG",
+            quote: "quote" in evidence ? evidence.quote! : "TODO_BUG",
           },
         ],
         reasoning: "Reason.",
