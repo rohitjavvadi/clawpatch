@@ -2624,6 +2624,85 @@ describe("mapFeatures", () => {
     expect(session?.trustBoundaries).toContain("auth");
   });
 
+  it("maps Fastify route-object static method arrays conservatively", async () => {
+    const root = await fixtureRoot("clawpatch-fastify-method-array-routes-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify(
+        {
+          name: "fastify-array-routes",
+          dependencies: { fastify: "1.0.0" },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "src/fastify.ts",
+      [
+        "import Fastify from 'fastify';",
+        "",
+        "const fastify = Fastify();",
+        "fastify.route({ method: ['GET', 'POST'], url: '/items', handler: items });",
+        "fastify.route({ method: ['DELETE', configuredMethod], url: '/mixed', handler: mixed });",
+        "fastify.route({ method: ['GET', configuredMethods[0]], url: '/indexed-mixed', handler: indexedMixed });",
+        "fastify.route({ method: ['PUT', 'PATCH'] as const, url: '/const-items', handler: constItems });",
+        "fastify.route({ method: ['OPTIONS'] satisfies readonly string[], url: '/satisfies-items', handler: satisfiesItems });",
+        "fastify.route({ method: [configuredMethod], url: '/dynamic-only', handler: dynamicOnly });",
+        "fastify.route({ method: [200], url: '/numeric-only', handler: numericOnly });",
+        "fastify.route({ method: [`PATCH`], url: '/template-static', handler: templateStatic });",
+        "fastify.route({ method: ['GET', `POST-${suffix}`], url: '/template-mixed', handler: templateMixed });",
+        "fastify.route({ method: [`PUT-${suffix}`, 'HEAD'], url: '/template-mixed-tail', handler: templateMixedTail });",
+        "fastify.route({ method: [`PATCH-${suffix}`], url: '/template-dynamic', handler: templateDynamic });",
+        "function items() {}",
+        "function mixed() {}",
+        "function indexedMixed() {}",
+        "function constItems() {}",
+        "function satisfiesItems() {}",
+        "function dynamicOnly() {}",
+        "function numericOnly() {}",
+        "function templateStatic() {}",
+        "function templateMixed() {}",
+        "function templateMixedTail() {}",
+        "function templateDynamic() {}",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const titles = result.features.map((feature) => feature.title);
+    const routes = result.features
+      .map((feature) => feature.entrypoints[0]?.route)
+      .filter((route): route is string => route !== undefined && route !== null);
+
+    expect(titles).toEqual(
+      expect.arrayContaining([
+        "Fastify route GET /items",
+        "Fastify route POST /items",
+        "Fastify route DELETE /mixed",
+        "Fastify route GET /indexed-mixed",
+        "Fastify route PUT /const-items",
+        "Fastify route PATCH /const-items",
+        "Fastify route OPTIONS /satisfies-items",
+        "Fastify route PATCH /template-static",
+        "Fastify route GET /template-mixed",
+        "Fastify route HEAD /template-mixed-tail",
+      ]),
+    );
+    expect(routes.some((route) => route.endsWith(" /dynamic-only"))).toBe(false);
+    expect(routes.some((route) => route.endsWith(" /numeric-only"))).toBe(false);
+    expect(routes.filter((route) => route.endsWith(" /template-mixed"))).toEqual([
+      "GET /template-mixed",
+    ]);
+    expect(routes.filter((route) => route.endsWith(" /template-mixed-tail"))).toEqual([
+      "HEAD /template-mixed-tail",
+    ]);
+    expect(routes.some((route) => route.endsWith(" /template-dynamic"))).toBe(false);
+  });
+
   it("keeps index route tests scoped to their route directory", async () => {
     const root = await fixtureRoot("clawpatch-node-server-index-route-tests-");
     await writeFixture(

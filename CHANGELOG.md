@@ -17,6 +17,7 @@
 - Improved OpenCode malformed JSON diagnostics with output length, event kinds, and a bounded preview, thanks @rohitjavvadi.
 - Fixed Express route mapping for aliased Router imports that follow block comment banners, thanks @rohitjavvadi.
 - Fixed Laravel route mapping to include array-style `Route::group` prefixes, thanks @rohitjavvadi.
+- Fixed Fastify route-object mapping to emit static method arrays while ignoring dynamic entries, thanks @rohitjavvadi.
 - Fixed Bun package-manager detection to recognize the text `bun.lock` lockfile, thanks @austinm911.
 
 ## 0.3.0 - 2026-05-18

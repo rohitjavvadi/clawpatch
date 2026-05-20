@@ -238,19 +238,22 @@ function fastifyRouteObjects(
       continue;
     }
     const routeObject = source.slice(objectStart, objectEnd);
-    const method = readStringProperty(routeObject, "method");
+    const methods = readStringPropertyValues(routeObject, "method");
     const routePath =
       readStringProperty(routeObject, "url") ?? readStringProperty(routeObject, "path");
-    if (method === null || routePath === null || !isRoutePath(routePath)) {
+    if (methods.length === 0 || routePath === null || !isRoutePath(routePath)) {
       continue;
     }
-    routes.push({
-      framework: "fastify",
-      filePath,
-      method: method.toUpperCase(),
-      routePath,
-      symbol: readIdentifierProperty(routeObject, "handler"),
-    });
+    const symbol = readIdentifierProperty(routeObject, "handler");
+    for (const method of methods) {
+      routes.push({
+        framework: "fastify",
+        filePath,
+        method: method.toUpperCase(),
+        routePath,
+        symbol,
+      });
+    }
   }
   return routes;
 }
@@ -706,8 +709,6 @@ function endOfCall(source: string, start: number): number | null {
         escaped = false;
       } else if (char === "\\") {
         escaped = true;
-      } else if (quote === "`" && char === "$" && source[index + 1] === "{") {
-        return null;
       } else if (char === quote) {
         quote = null;
       }
@@ -741,8 +742,6 @@ function endOfObject(source: string, start: number): number | null {
         escaped = false;
       } else if (char === "\\") {
         escaped = true;
-      } else if (quote === "`" && char === "$" && source[index + 1] === "{") {
-        return null;
       } else if (char === quote) {
         quote = null;
       }
@@ -756,6 +755,48 @@ function endOfObject(source: string, start: number): number | null {
       depth -= 1;
       if (depth === 0) {
         return index + 1;
+      }
+    }
+  }
+  return null;
+}
+
+function endOfArray(source: string, start: number): number | null {
+  const stack = ["["];
+  let quote: string | null = null;
+  let escaped = false;
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === undefined) {
+      return null;
+    }
+    if (quote !== null) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+    } else if (char === "[" || char === "(" || char === "{") {
+      stack.push(char);
+    } else if (char === "]" || char === ")" || char === "}") {
+      const opener = stack.at(-1);
+      if (
+        (opener === "[" && char === "]") ||
+        (opener === "(" && char === ")") ||
+        (opener === "{" && char === "}")
+      ) {
+        stack.pop();
+        if (stack.length === 0) {
+          return index + 1;
+        }
+      } else {
+        return null;
       }
     }
   }
@@ -805,6 +846,57 @@ function isRoutePath(path: string): boolean {
   return path === "*" || path.startsWith("/");
 }
 
+function readStringPropertyValues(source: string, property: string): string[] {
+  const escapedProperty = property.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const pattern = new RegExp(String.raw`(?:^|[,{}]\s*)${escapedProperty}\s*:`, "gu");
+  for (const match of source.matchAll(pattern)) {
+    const valueStart = (match.index ?? 0) + match[0].length;
+    const literal = readStringLiteralArgument(source, valueStart);
+    if (literal !== null) {
+      const delimiter = nextRoutePropertyDelimiter(source, literal.end);
+      if (delimiter === "," || delimiter === "}") {
+        return [literal.value];
+      }
+      continue;
+    }
+    const array = readStringArrayLiteral(source, valueStart);
+    if (array === null) {
+      continue;
+    }
+    const delimiter = nextRoutePropertyDelimiter(source, array.end);
+    if (delimiter === "," || delimiter === "}") {
+      return array.values;
+    }
+  }
+  return [];
+}
+
+function readStringArrayLiteral(
+  source: string,
+  start: number,
+): { values: string[]; end: number } | null {
+  const arrayStart = skipWhitespace(source, start);
+  if (source[arrayStart] !== "[") {
+    return null;
+  }
+  const arrayEnd = endOfArray(source, arrayStart + 1);
+  if (arrayEnd === null) {
+    return null;
+  }
+  const values: string[] = [];
+  for (const element of splitTopLevelArguments(source.slice(arrayStart + 1, arrayEnd - 1))) {
+    const literal = readStringLiteralArgument(element, 0);
+    if (literal === null) {
+      continue;
+    }
+    const delimiter = nextRouteValueDelimiter(element, literal.end);
+    if (delimiter === null) {
+      values.push(literal.value);
+    }
+  }
+  return { values, end: arrayEnd };
+}
+
 function readStringProperty(source: string, property: string): string | null {
   const escapedProperty = property.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   const pattern = new RegExp(String.raw`(?:^|[,{]\s*)${escapedProperty}\s*:`, "gu");
@@ -813,12 +905,67 @@ function readStringProperty(source: string, property: string): string | null {
     if (literal === null) {
       continue;
     }
-    const delimiter = nextRouteValueDelimiter(source, literal.end);
+    const delimiter = nextRoutePropertyDelimiter(source, literal.end);
     if (delimiter === "," || delimiter === "}") {
       return literal.value;
     }
   }
   return null;
+}
+
+function nextRoutePropertyDelimiter(source: string, start: number): string | null {
+  const suffixEnd = skipTypeScriptValueSuffix(source, start);
+  return nextRouteValueDelimiter(source, suffixEnd);
+}
+
+function skipTypeScriptValueSuffix(source: string, start: number): number {
+  let cursor = skipWhitespaceAndComments(source, start);
+  if (isKeywordAt(source, cursor, "as")) {
+    cursor = skipWhitespaceAndComments(source, cursor + "as".length);
+    if (isKeywordAt(source, cursor, "const")) {
+      return skipWhitespaceAndComments(source, cursor + "const".length);
+    }
+    return start;
+  }
+  if (isKeywordAt(source, cursor, "satisfies")) {
+    return skipTypeSuffix(source, cursor + "satisfies".length);
+  }
+  return start;
+}
+
+function skipTypeSuffix(source: string, start: number): number {
+  let quote: string | null = null;
+  let escaped = false;
+  let depth = 0;
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === undefined) {
+      return index;
+    }
+    if (quote !== null) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+    } else if (char === "(" || char === "[" || char === "{") {
+      depth += 1;
+    } else if (char === ")" || char === "]" || char === "}") {
+      if (depth === 0) {
+        return index;
+      }
+      depth -= 1;
+    } else if (char === "," && depth === 0) {
+      return index;
+    }
+  }
+  return source.length;
 }
 
 function readIdentifierProperty(source: string, property: string): string | null {
