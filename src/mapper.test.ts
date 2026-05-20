@@ -2436,6 +2436,10 @@ describe("mapFeatures", () => {
         "export const arrowRoutes = fastifyPlugin(async (app) => {",
         "  app.get('/plugin-arrow-users', listPluginArrowUsers);",
         "});",
+        "export const instanceRoutes = fp(async (instance, options) => {",
+        "  instance.get('/plugin-instance-users', listPluginInstanceUsers);",
+        "  options.get('/not-plugin-options', ignoredOptions);",
+        "});",
         "export const aliasedRoutes = fp(async (app) => {",
         "  app.get('/plugin-aliased-users', listPluginAliasedUsers);",
         "});",
@@ -2468,6 +2472,7 @@ describe("mapFeatures", () => {
         "function listPluginServerUsers() {}",
         "function listPluginServerReturnUsers() {}",
         "function listPluginArrowUsers() {}",
+        "function listPluginInstanceUsers() {}",
         "function listPluginAliasedUsers() {}",
         "function listPluginGenericUsers() {}",
         "function listPluginImportEqualsUsers() {}",
@@ -2478,6 +2483,7 @@ describe("mapFeatures", () => {
         "function createHttpServer() { return { get() {} }; }",
         "function ignoredApp() {}",
         "function ignoredServer() {}",
+        "function ignoredOptions() {}",
         "",
       ].join("\n"),
     );
@@ -2686,6 +2692,7 @@ describe("mapFeatures", () => {
         "Fastify route GET /plugin-server-users",
         "Fastify route GET /plugin-server-return-users",
         "Fastify route GET /plugin-arrow-users",
+        "Fastify route GET /plugin-instance-users",
         "Fastify route GET /plugin-aliased-users",
         "Fastify route GET /plugin-generic-users",
         "Fastify route GET /plugin-import-equals-users",
@@ -2719,6 +2726,7 @@ describe("mapFeatures", () => {
     expect(titles).not.toContain("Fastify route GET /not-plugin-app");
     expect(titles).not.toContain("Fastify route GET /not-plugin-app-typed");
     expect(titles).not.toContain("Fastify route GET /not-plugin-server");
+    expect(titles).not.toContain("Fastify route GET /not-plugin-options");
     expect(titles).not.toContain("Fastify route GET /shadow-fastify-instance");
     expect(titles).not.toContain("Fastify route GET /concat-");
     expect(titles).not.toContain("Express route DELETE /reports");

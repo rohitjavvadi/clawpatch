@@ -661,11 +661,11 @@ function fastifyScopedCallbackRoutes(source: string, filePath: string): ServerRo
     ...inlineFastifyInstanceCallbacks(source),
   ]) {
     const targets = new Set<string>();
-    for (const parameter of callback.parameters) {
+    for (const [index, parameter] of callback.parameters.entries()) {
       if (
         isFastifyInstanceParameter(parameter.source, hasInstanceImport) ||
         (pluginCallTargets.size > 0 &&
-          isCommonFastifyPluginParameterName(parameter.name) &&
+          index === 0 &&
           isInsideFastifyPluginCall(source, callback.index, pluginCallTargets))
       ) {
         targets.add(parameter.name);
@@ -891,10 +891,6 @@ function isInsideFastifyPluginCall(
   const prefix = source.slice(Math.max(0, functionIndex - 120), functionIndex);
   const targetPattern = [...pluginCallTargets].map(escapeRegExp).join("|");
   return new RegExp(`\\b(?:${targetPattern})${genericArguments}\\s*\\(\\s*$`, "u").test(prefix);
-}
-
-function isCommonFastifyPluginParameterName(name: string): boolean {
-  return name === "app" || name === "server";
 }
 
 function isRouteTarget(targets: ReadonlySet<string>, target: string): boolean {
