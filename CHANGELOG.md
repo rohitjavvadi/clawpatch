@@ -17,6 +17,7 @@
 - Fixed `clawpatch ci --since` empty-review output so it reports `reviewed: 0`.
 - Fixed formatter configuration so `oxfmt` uses two-space indentation consistently across platforms.
 - Added generic package-less monorepo app-root mapping for Node/Next projects under roots such as `apps/*` and `packages/*` when positive source or framework signals are present.
+- Added Maven project mapping for root, nested, and multi-module Java/Kotlin projects with Spring role slices, Maven validation defaults, and `pom.xml` detection, thanks @julianshess.
 - Added a release-prep checklist for auditing changelog, package metadata, and dry-run package contents without publishing.
 - Improved OpenCode malformed JSON diagnostics with output length, event kinds, and a bounded preview, thanks @rohitjavvadi.
 - Fixed Express route mapping for aliased Router imports that follow block comment banners, thanks @rohitjavvadi.
