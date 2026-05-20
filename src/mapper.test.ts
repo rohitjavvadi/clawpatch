@@ -9776,6 +9776,24 @@ describe("mapFeatures", () => {
       "shared/src/main/java/com/acme/shared/Shared.java",
       "package com.acme.shared;\nclass Shared {}\n",
     );
+    await writeFixture(
+      root,
+      "tools/standalone/pom.xml",
+      [
+        "<project>",
+        "  <modelVersion>4.0.0</modelVersion>",
+        "  <groupId>com.acme.tools</groupId>",
+        "  <artifactId>standalone-tool</artifactId>",
+        "  <version>1.0.0</version>",
+        "</project>",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "tools/standalone/src/main/java/com/acme/tools/Tool.java",
+      "package com.acme.tools;\nclass Tool {}\n",
+    );
 
     const project = await detectProject(root);
     const result = await mapFeatures(root, project, []);
@@ -9788,11 +9806,15 @@ describe("mapFeatures", () => {
     expect(titles).toContain("Maven module core-service");
     expect(titles).toContain("Maven module api-service");
     expect(titles).toContain("Maven module shared-library");
+    expect(titles).toContain("Maven module standalone-tool");
     expect(titles).toContain("Maven source core/src");
     expect(titles).toContain("Maven source services/api/src");
     expect(titles).toContain("Maven source shared/src");
+    expect(titles).toContain("Maven source tools/standalone/src");
     expect(titles).not.toContain("Maven source src");
     expect(titles).not.toContain("Maven source services/src");
+    expect(titles.filter((title) => title === "Maven module api-service")).toHaveLength(1);
+    expect(titles.filter((title) => title === "Maven module shared-library")).toHaveLength(1);
     expect(core?.tags).toEqual(
       expect.arrayContaining(["project:core-service", "project-root:core"]),
     );

@@ -21,20 +21,29 @@ type MavenProjectInfo = {
 export async function mavenSeeds(root: string): Promise<FeatureSeed[]> {
   const roots = await discoverMavenRoots(root);
   const seeds: FeatureSeed[] = [];
+  const mappedModuleRoots = new Set<string>();
   for (const mavenRoot of roots) {
-    seeds.push(...(await mavenProjectSeeds(root, mavenRoot)));
+    seeds.push(...(await mavenProjectSeeds(root, mavenRoot, mappedModuleRoots)));
   }
   return seeds;
 }
 
-async function mavenProjectSeeds(root: string, mavenRoot: string): Promise<FeatureSeed[]> {
+async function mavenProjectSeeds(
+  root: string,
+  mavenRoot: string,
+  mappedModuleRoots: Set<string>,
+): Promise<FeatureSeed[]> {
   const moduleRoots = await mavenModuleRoots(root, mavenRoot);
   const seeds: FeatureSeed[] = [];
   for (const moduleRoot of moduleRoots) {
+    if (mappedModuleRoots.has(moduleRoot)) {
+      continue;
+    }
     const info = await readMavenProject(root, moduleRoot);
     if (info === null) {
       continue;
     }
+    mappedModuleRoots.add(moduleRoot);
     const sourceRoot = moduleRoot === "." ? "src" : `${moduleRoot}/src`;
     const sourceFiles = (await walk(root, [sourceRoot]))
       .filter(isMavenSourceFile)
@@ -141,7 +150,6 @@ async function discoverMavenRootsInto(
   }
   if ((await mavenPomFile(root, dir)) !== null) {
     roots.push(dir);
-    return;
   }
   for (const entry of await readdir(full)) {
     const child = dir === "." ? entry : `${dir}/${entry}`;
