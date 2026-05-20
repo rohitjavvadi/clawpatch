@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ClawpatchError } from "./errors.js";
 import { __testing, extractJson, providerByName } from "./provider.js";
 import { safeProviderPreview } from "./provider-json.js";
-import { revalidateOutputSchema, reviewOutputSchema } from "./types.js";
+import { evidenceRefSchema, revalidateOutputSchema, reviewOutputSchema } from "./types.js";
 
 // eslint-disable-next-line no-underscore-dangle
 const {
@@ -260,6 +260,20 @@ describe("providerJsonSchema", () => {
       expect(enumNodes.every((node) => node["type"] === "string")).toBe(true);
     }
   });
+
+  it("keeps object schemas strict even when parser input fields are optional", () => {
+    const schema = providerJsonSchema(reviewOutputSchema) as Record<string, unknown>;
+    const findings = propertySchema(schema, "findings");
+    const finding = itemSchema(findings);
+    const inspected = propertySchema(schema, "inspected");
+
+    for (const objectSchema of [schema, finding, inspected]) {
+      expect(objectSchema["additionalProperties"]).toBe(false);
+      expect(objectSchema["required"]).toEqual(Object.keys(propertiesOf(objectSchema)));
+    }
+    expect(finding["required"]).toContain("reproduction");
+    expect(finding["required"]).toContain("minimumFixScope");
+  });
 });
 
 describe("piThinkingLevel", () => {
@@ -292,6 +306,30 @@ function enumSchemaNodes(value: unknown): Array<Record<string, unknown>> {
   const node = value as Record<string, unknown>;
   const nested = Object.values(node).flatMap(enumSchemaNodes);
   return Array.isArray(node["enum"]) ? [node, ...nested] : nested;
+}
+
+function propertySchema(schema: Record<string, unknown>, name: string): Record<string, unknown> {
+  const value = propertiesOf(schema)[name];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`missing schema property: ${name}`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function itemSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  const value = schema["items"];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("missing item schema");
+  }
+  return value as Record<string, unknown>;
+}
+
+function propertiesOf(schema: Record<string, unknown>): Record<string, unknown> {
+  const value = schema["properties"];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("missing schema properties");
+  }
+  return value as Record<string, unknown>;
 }
 
 describe("codexFailureMessage", () => {
@@ -745,6 +783,79 @@ describe("providerByName", () => {
     expect(providerByName("codex").name).toBe("codex");
     expect(providerByName("mock").name).toBe("mock");
     expect(providerByName("mock-fail").name).toBe("mock-fail");
+  });
+});
+
+function buildToleranceFinding(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    title: "x",
+    category: "bug",
+    severity: "low",
+    confidence: "low",
+    evidence: [],
+    reasoning: "r",
+    reproduction: null,
+    recommendation: "rec",
+    whyTestsDoNotAlreadyCoverThis: "",
+    suggestedRegressionTest: null,
+    minimumFixScope: "",
+    ...overrides,
+  };
+}
+
+function buildToleranceOutput(finding: Record<string, unknown>): Record<string, unknown> {
+  return {
+    findings: [finding],
+    inspected: { files: [], symbols: [], notes: [] },
+  };
+}
+
+describe("reviewOutputSchema tolerance", () => {
+  it("accepts findings with null reproduction", () => {
+    const parsed = reviewOutputSchema.parse(
+      buildToleranceOutput(buildToleranceFinding({ reproduction: null })),
+    );
+    expect(parsed.findings[0]!.reproduction).toBeNull();
+  });
+
+  it("accepts findings with omitted reproduction (becomes null)", () => {
+    const finding = buildToleranceFinding();
+    delete finding["reproduction"];
+    const parsed = reviewOutputSchema.parse(buildToleranceOutput(finding));
+    expect(parsed.findings[0]!.reproduction).toBeNull();
+  });
+
+  it("accepts findings with omitted minimumFixScope (becomes empty string)", () => {
+    const finding = buildToleranceFinding();
+    delete finding["minimumFixScope"];
+    const parsed = reviewOutputSchema.parse(buildToleranceOutput(finding));
+    expect(parsed.findings[0]!.minimumFixScope).toBe("");
+  });
+});
+
+describe("evidenceRefSchema tolerance", () => {
+  it("accepts startLine 0 and normalizes to null", () => {
+    const parsed = evidenceRefSchema.parse({
+      path: "src/index.ts",
+      startLine: 0,
+      endLine: 5,
+      symbol: null,
+      quote: null,
+    });
+    expect(parsed.startLine).toBeNull();
+    expect(parsed.endLine).toBeNull();
+  });
+
+  it("accepts endLine 0 and normalizes to null", () => {
+    const parsed = evidenceRefSchema.parse({
+      path: "src/index.ts",
+      startLine: 5,
+      endLine: 0,
+      symbol: null,
+      quote: null,
+    });
+    expect(parsed.startLine).toBeNull();
+    expect(parsed.endLine).toBeNull();
   });
 });
 
