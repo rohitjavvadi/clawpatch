@@ -9539,6 +9539,25 @@ describe("mapFeatures", () => {
     ]);
   });
 
+  it("preserves Gradle validation commands when root Maven and Gradle files coexist", async () => {
+    const root = await fixtureRoot("clawpatch-root-maven-gradle-commands-");
+    await writeFixture(root, "pom.xml", "<project><artifactId>dual-build</artifactId></project>\n");
+    await writeFixture(root, "build.gradle", "plugins { id 'java' }\n");
+    await writeFixture(
+      root,
+      "src/main/java/com/acme/App.java",
+      "package com.acme;\nclass App {}\n",
+    );
+
+    const project = await detectProject(root);
+
+    expect(project.detected.packageManagers).toEqual(expect.arrayContaining(["gradle", "maven"]));
+    expect(project.detected.commands).toMatchObject({
+      typecheck: "gradle build",
+      test: "gradle test",
+    });
+  });
+
   it("maps Spring JVM roles from Maven Java projects", async () => {
     const root = await fixtureRoot("clawpatch-maven-spring-role-map-");
     await writeFixture(
@@ -9872,6 +9891,12 @@ describe("mapFeatures", () => {
       "fixtures/service/src/main/java/com/example/App.java",
       "class App {}\n",
     );
+    await writeFixture(
+      root,
+      "vendor/lib/pom.xml",
+      "<project><artifactId>vendored</artifactId></project>\n",
+    );
+    await writeFixture(root, "vendor/lib/src/main/java/com/example/App.java", "class App {}\n");
 
     const project = await detectProject(root);
     const result = await mapFeatures(root, project, []);

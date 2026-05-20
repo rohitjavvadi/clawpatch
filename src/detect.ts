@@ -230,15 +230,15 @@ async function languageDefaultCommands(
   }
   if (
     (languages.includes("java") || languages.includes("kotlin")) &&
-    (await isRootMavenProject(root))
-  ) {
-    return mavenDefaultCommands(root);
-  }
-  if (
-    (languages.includes("java") || languages.includes("kotlin")) &&
     (await isRootGradleProject(root))
   ) {
     return gradleDefaultCommands(root);
+  }
+  if (
+    (languages.includes("java") || languages.includes("kotlin")) &&
+    (await isRootMavenProject(root))
+  ) {
+    return mavenDefaultCommands(root);
   }
   if (languages.includes("elixir")) {
     return elixirDefaultCommands(root);

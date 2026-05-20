@@ -137,7 +137,7 @@ async function discoverMavenRootsInto(
   remainingDepth: number,
   roots: string[],
 ): Promise<void> {
-  if (remainingDepth < 0 || (dir !== "." && (shouldSkip(dir) || isSampleProjectPath(dir)))) {
+  if (remainingDepth < 0 || (dir !== "." && shouldSkipMavenPath(dir))) {
     return;
   }
   const full = dir === "." ? root : join(root, dir);
@@ -153,7 +153,7 @@ async function discoverMavenRootsInto(
   }
   for (const entry of await readdir(full)) {
     const child = dir === "." ? entry : `${dir}/${entry}`;
-    if (shouldSkip(child) || isSampleProjectPath(child)) {
+    if (shouldSkipMavenPath(child)) {
       continue;
     }
     const childInfo = await lstat(join(full, entry));
@@ -175,7 +175,7 @@ async function collectMavenModules(
   remainingDepth: number,
   modules: Set<string>,
 ): Promise<void> {
-  if (remainingDepth < 0 || shouldSkip(moduleRoot) || isSampleProjectPath(moduleRoot)) {
+  if (remainingDepth < 0 || shouldSkipMavenPath(moduleRoot)) {
     return;
   }
   const info = await readMavenProject(root, moduleRoot);
@@ -184,7 +184,7 @@ async function collectMavenModules(
   }
   for (const modulePath of info.modules) {
     const childRoot = mavenModulePath(moduleRoot, modulePath);
-    if (childRoot === null || shouldSkip(childRoot) || isSampleProjectPath(childRoot)) {
+    if (childRoot === null || shouldSkipMavenPath(childRoot)) {
       continue;
     }
     if ((await mavenPomFile(root, childRoot)) === null) {
@@ -298,6 +298,12 @@ function mavenModulePath(moduleRoot: string, modulePath: string): string | null 
 
 function mavenFallbackArtifactId(moduleRoot: string): string {
   return moduleRoot === "." ? "root" : basename(moduleRoot);
+}
+
+function shouldSkipMavenPath(path: string): boolean {
+  return (
+    shouldSkip(path) || isSampleProjectPath(path) || path === "vendor" || path.startsWith("vendor/")
+  );
 }
 
 function mavenPomHasSpring(source: string): boolean {
