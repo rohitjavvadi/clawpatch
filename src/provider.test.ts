@@ -22,6 +22,7 @@ const {
   parseReviewOutput,
   parseOrThrow,
   piThinkingLevel,
+  providerExitCode,
   providerJsonSchema,
 } = __testing;
 
@@ -360,6 +361,55 @@ describe("codexFailureMessage", () => {
     expect(message).toContain("codex provider failed");
     expect(message).toContain("api.responses.write");
     expect(message).toContain("restricted key scopes");
+  });
+});
+
+describe("providerExitCode", () => {
+  it("classifies auth failures from stdout-only provider output", () => {
+    expect(providerExitCode("Unauthorized: Wrong API Key", "")).toBe(4);
+    expect(providerExitCode("auth required", "")).toBe(4);
+    expect(providerExitCode("Incorrect API key provided", "")).toBe(4);
+    expect(providerExitCode("invalid_api_key", "")).toBe(4);
+    expect(providerExitCode("API key is required", "")).toBe(4);
+    expect(providerExitCode("API key not found", "")).toBe(4);
+    expect(providerExitCode("OPENAI_API_KEY is not set", "")).toBe(4);
+    expect(providerExitCode("insufficient permissions", "")).toBe(4);
+    expect(providerExitCode("api.responses.write scope is required", "")).toBe(4);
+    expect(providerExitCode("AuthenticationError: invalid credentials", "")).toBe(4);
+    expect(providerExitCode("authentication_error", "")).toBe(4);
+    expect(providerExitCode("AUTH_REQUIRED", "")).toBe(4);
+  });
+
+  it("classifies quota failures from stdout-only provider output", () => {
+    expect(providerExitCode("quota exceeded for this organization", "")).toBe(5);
+    expect(providerExitCode("You exceeded your current quota", "")).toBe(5);
+    expect(providerExitCode("insufficient_quota", "")).toBe(5);
+    expect(providerExitCode("quota_exceeded", "")).toBe(5);
+    expect(providerExitCode("RateLimitError: retry later", "")).toBe(5);
+    expect(providerExitCode("rate_limit_error", "")).toBe(5);
+  });
+
+  it("does not classify benign auth-looking stdout as auth failures", () => {
+    expect(providerExitCode("author: Jane", "")).toBe(1);
+    expect(providerExitCode("registered oauth-callback route", "")).toBe(1);
+    expect(providerExitCode("authority metadata loaded", "")).toBe(1);
+  });
+
+  it("does not classify generic rate-limiting discussion as quota failures", () => {
+    expect(providerExitCode("consider adding rate-limiting to this endpoint", "")).toBe(1);
+    expect(providerExitCode("document the rate limit policy for future work", "")).toBe(1);
+  });
+
+  it("keeps classifying real rate-limit failures", () => {
+    expect(providerExitCode("rate limit exceeded for this organization", "")).toBe(5);
+  });
+
+  it("keeps classifying stderr failures", () => {
+    expect(providerExitCode("", "please login before running the provider")).toBe(4);
+  });
+
+  it("keeps generic failures when neither stream has a known signal", () => {
+    expect(providerExitCode("process exited unexpectedly", "")).toBe(1);
   });
 });
 

@@ -511,7 +511,7 @@ async function runPiJson(
     if (result.exitCode !== 0) {
       throw new ClawpatchError(
         piFailureMessage(result.stdout, result.stderr),
-        providerExitCode(result.stderr),
+        providerExitCode(result.stdout, result.stderr),
         "provider-failure",
       );
     }
@@ -783,7 +783,7 @@ async function runCodexJson(
     if (result.exitCode !== 0) {
       throw new ClawpatchError(
         codexFailureMessage(result.stdout, result.stderr),
-        providerExitCode(result.stderr),
+        providerExitCode(result.stdout, result.stderr),
         "provider-failure",
       );
     }
@@ -873,7 +873,7 @@ async function runOpencodeJson(
     if (result.exitCode !== 0) {
       throw new ClawpatchError(
         opencodeFailureMessage(result.stdout, result.stderr),
-        providerExitCode(result.stderr),
+        providerExitCode(result.stdout, result.stderr),
         "provider-failure",
       );
     }
@@ -1209,7 +1209,7 @@ async function runGrokJson(
     if (result.exitCode !== 0) {
       throw new ClawpatchError(
         `grok provider failed: ${result.stderr || result.stdout}`,
-        providerExitCode(result.stderr),
+        providerExitCode(result.stdout, result.stderr),
         "provider-failure",
       );
     }
@@ -1273,11 +1273,17 @@ function grokEnvelopeText(value: unknown): string | null {
   return null;
 }
 
-function providerExitCode(stderr: string): number {
-  if (/auth|login|api key|unauthorized|wrong api key/iu.test(stderr)) {
+const PROVIDER_AUTH_FAILURE_PATTERN =
+  /\b(?:unauthori[sz]ed|(?:wrong|incorrect|invalid|missing|no)[\s_-]+api[\s_-]*key|api[\s_-]*key\s+(?:is\s+)?(?:missing|required|invalid|expired|not[\s_-]+found|not[\s_-]+set)|[A-Z0-9_]*API[_-]?KEY\s+(?:is\s+)?(?:missing|required|invalid|expired|not[\s_-]+set)|not authenticated|auth(?:entication|orization)?[\s_-]*(?:failed|required|missing|error)|login\s+(?:required|failed)|please\s+(?:log\s*in|login)|missing scopes?|insufficient permissions?|api\.responses\.write)\b/iu;
+const PROVIDER_QUOTA_FAILURE_PATTERN =
+  /\b(?:quota[\s_-]+(?:exceeded|exhausted|reached)|(?:exceeded|exhausted|reached)[\s_-]+(?:your[\s_-]+)?(?:current[\s_-]+)?quota|insufficient[\s_-]+quota|out[\s_-]+of[\s_-]+quota|rate[\s_-]*limit(?:ed|[\s_-]*(?:error|exceeded|reached))|too many requests)\b/iu;
+
+function providerExitCode(stdout: string, stderr = ""): number {
+  const output = `${stderr}\n${stdout}`;
+  if (PROVIDER_AUTH_FAILURE_PATTERN.test(output)) {
     return 4;
   }
-  if (/quota|rate.?limit/iu.test(stderr)) {
+  if (PROVIDER_QUOTA_FAILURE_PATTERN.test(output)) {
     return 5;
   }
   return 1;
@@ -1394,5 +1400,6 @@ export const __testing = {
   parseReviewOutput,
   parseOrThrow,
   piThinkingLevel,
+  providerExitCode,
   providerJsonSchema,
 };
