@@ -12839,13 +12839,38 @@ add_executable(headerapp include/headers.hpp)
       [
         "from fastapi import APIRouter",
         "",
-        "router = APIRouter()",
+        "router: APIRouter = APIRouter(prefix='/api/v1')",
         "",
         "@router.post(",
         "    path='/admin/jobs',",
         ")",
         "def create_job():",
         "    return {'queued': True}",
+        "",
+        "@router.get('/admin/jobs/')",
+        "def list_jobs():",
+        "    return {'jobs': []}",
+        "",
+        "@router.get('')",
+        "def admin_root():",
+        "    return {'root': True}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "web/v2.py",
+      [
+        "import fastapi",
+        "",
+        "api_router = fastapi.APIRouter (",
+        '    prefix="/v2",',
+        "    tags=['v2'],",
+        ")",
+        "",
+        "@api_router.get('/')",
+        "def v2_index():",
+        "    return {'ok': True}",
         "",
       ].join("\n"),
     );
@@ -12861,8 +12886,15 @@ add_executable(headerapp include/headers.hpp)
       (feature) => feature.title === "FastAPI route POST /submit",
     );
     const admin = result.features.find(
-      (feature) => feature.title === "FastAPI route POST /admin/jobs",
+      (feature) => feature.title === "FastAPI route POST /api/v1/admin/jobs",
     );
+    const jobs = result.features.find(
+      (feature) => feature.title === "FastAPI route GET /api/v1/admin/jobs/",
+    );
+    const adminRoot = result.features.find(
+      (feature) => feature.title === "FastAPI route GET /api/v1",
+    );
+    const v2 = result.features.find((feature) => feature.title === "FastAPI route GET /v2/");
 
     expect(project.detected.frameworks).toContain("fastapi");
     expect(health?.source).toBe("python-fastapi-route");
@@ -12877,9 +12909,16 @@ add_executable(headerapp include/headers.hpp)
     expect(admin?.entrypoints[0]).toMatchObject({
       path: "web/api.py",
       symbol: "create_job",
-      route: "POST /admin/jobs",
+      route: "POST /api/v1/admin/jobs",
     });
     expect(admin?.trustBoundaries).toContain("auth");
+    expect(jobs?.entrypoints[0]?.route).toBe("GET /api/v1/admin/jobs/");
+    expect(adminRoot?.entrypoints[0]?.route).toBe("GET /api/v1");
+    expect(v2?.entrypoints[0]).toMatchObject({
+      path: "web/v2.py",
+      symbol: "v2_index",
+      route: "GET /v2/",
+    });
   });
 
   it("detects metadata-free root and web Python sources", async () => {
