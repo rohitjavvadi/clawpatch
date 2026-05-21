@@ -498,15 +498,15 @@ function railsRouteDeclarations(source: string): RailsRoute[] {
       skippedBlockDepth = Math.max(0, skippedBlockDepth + blockDelta);
       continue;
     }
-    if (blockDelta === 0) {
-      const route = parseRailsRouteLine(line);
-      if (route !== null) {
-        const key = [route.method, route.path, route.target].join("\0");
-        if (!seen.has(key)) {
-          seen.add(key);
-          routes.push(route);
-        }
+    const route = parseRailsRouteLine(line);
+    if (route !== null) {
+      const key = [route.method, route.path, route.target].join("\0");
+      if (!seen.has(key)) {
+        seen.add(key);
+        routes.push(route);
       }
+    }
+    if (blockDelta === 0) {
       continue;
     }
 
@@ -523,7 +523,7 @@ function startsRailsRoutesDrawBlock(line: string): boolean {
 
 function railsLineBlockDelta(line: string): number {
   const code = rubyLineWithoutStrings(line);
-  return rubyTokenCount(code, "do") - rubyTokenCount(code, "end");
+  return rubyTokenCount(code, "do") - rubyTokenCount(code, "end") + rubyBraceDelta(code);
 }
 
 function rubyTokenCount(source: string, token: string): number {
@@ -531,10 +531,28 @@ function rubyTokenCount(source: string, token: string): number {
   return matches?.length ?? 0;
 }
 
+function rubyBraceDelta(source: string): number {
+  let delta = 0;
+  for (const char of source) {
+    if (char === "{") {
+      delta += 1;
+    } else if (char === "}") {
+      delta -= 1;
+    }
+  }
+  return delta;
+}
+
 function rubyLineWithoutStrings(line: string): string {
   let code = "";
   for (let index = 0; index < line.length; index += 1) {
     const char = line[index];
+    if (char === "/" && rubyRegexLiteralStart(line, index)) {
+      const end = rubyRegexLiteralEnd(line, index);
+      code += " ".repeat(end - index + 1);
+      index = end;
+      continue;
+    }
     if (char !== "'" && char !== '"') {
       code += char;
       continue;
@@ -554,6 +572,32 @@ function rubyLineWithoutStrings(line: string): string {
     }
   }
   return code;
+}
+
+function rubyRegexLiteralStart(line: string, index: number): boolean {
+  const before = line.slice(0, index).trimEnd();
+  const previous = before.at(-1);
+  return previous === undefined || /[([{=,:!&|?>]/u.test(previous);
+}
+
+function rubyRegexLiteralEnd(line: string, start: number): number {
+  let escaped = false;
+  let inCharacterClass = false;
+  for (let index = start + 1; index < line.length; index += 1) {
+    const char = line[index];
+    if (escaped) {
+      escaped = false;
+    } else if (char === "\\") {
+      escaped = true;
+    } else if (char === "[") {
+      inCharacterClass = true;
+    } else if (char === "]") {
+      inCharacterClass = false;
+    } else if (char === "/" && !inCharacterClass) {
+      return index;
+    }
+  }
+  return start;
 }
 
 function parseRailsRouteLine(line: string): RailsRoute | null {

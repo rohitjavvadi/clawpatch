@@ -1686,6 +1686,16 @@ describe("mapFeatures", () => {
         "  scope path: '/api' do",
         "    get '/health', to: 'health#show'",
         "  end",
+        "  scope(path: '/brace') {",
+        "    get '/brace-health', to: 'health#show'",
+        "    token = /\\}/",
+        "    get '/brace-leaked', to: 'leaked#index'",
+        "  }",
+        "  get '/constrained', to: 'constrained#index', constraints: {",
+        "    subdomain: 'api'",
+        "  }",
+        "  get '/regex-constrained', to: 'regex#index', constraints: { token: /\\{/ }",
+        "  get '/hash-rocket-regex', to: 'regex#index', constraints: { :token => /\\{/ }",
         "  get '/public', to: 'public#index'",
         "  constraints subdomain: 'api' do",
         "    get '/constraint-health', to: 'health#show'",
@@ -1745,6 +1755,15 @@ describe("mapFeatures", () => {
     const deleteSessionRoute = result.features.find(
       (feature) => feature.title === "Rails route DELETE /sessions/:id",
     );
+    const constrainedRoute = result.features.find(
+      (feature) => feature.title === "Rails route GET /constrained",
+    );
+    const regexConstrainedRoute = result.features.find(
+      (feature) => feature.title === "Rails route GET /regex-constrained",
+    );
+    const hashRocketRegexRoute = result.features.find(
+      (feature) => feature.title === "Rails route GET /hash-rocket-regex",
+    );
 
     expect(project.detected.frameworks).toContain("rails");
     expect(titles).toEqual(
@@ -1755,6 +1774,9 @@ describe("mapFeatures", () => {
         "Rails route PUT /profiles/:id",
         "Rails route PATCH /accounts/:id",
         "Rails route DELETE /sessions/:id",
+        "Rails route GET /constrained",
+        "Rails route GET /regex-constrained",
+        "Rails route GET /hash-rocket-regex",
       ]),
     );
     expect(titles).not.toContain("Rails route GET /wildcards/*path");
@@ -1765,6 +1787,8 @@ describe("mapFeatures", () => {
     expect(titles).not.toContain("Rails route GET /featured");
     expect(titles).not.toContain("Rails route GET /preview");
     expect(titles).not.toContain("Rails route GET /health");
+    expect(titles).not.toContain("Rails route GET /brace-health");
+    expect(titles).not.toContain("Rails route GET /brace-leaked");
     expect(titles).not.toContain("Rails route GET /constraint-health");
     expect(titles).not.toContain("Rails route GET /legacy");
     expect(titles).toContain("Rails route GET /public");
@@ -1792,6 +1816,9 @@ describe("mapFeatures", () => {
     expect(profileRoute?.entrypoints[0]?.route).toBe("PUT /profiles/:id");
     expect(accountRoute?.entrypoints[0]?.route).toBe("PATCH /accounts/:id");
     expect(deleteSessionRoute?.entrypoints[0]?.route).toBe("DELETE /sessions/:id");
+    expect(constrainedRoute?.entrypoints[0]?.route).toBe("GET /constrained");
+    expect(regexConstrainedRoute?.entrypoints[0]?.route).toBe("GET /regex-constrained");
+    expect(hashRocketRegexRoute?.entrypoints[0]?.route).toBe("GET /hash-rocket-regex");
   });
 
   symlinkIt("keeps Rails route files and handlers inside the repository", async () => {
