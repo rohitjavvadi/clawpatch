@@ -520,9 +520,7 @@ function joinDjangoRoutePaths(prefix: string, route: string): string {
   if (route === "/") {
     return prefix;
   }
-  return normalizeDjangoRoutePath(
-    `${prefix.replace(/^\/+|\/+$/gu, "")}/${route.replace(/^\/+/u, "")}`,
-  );
+  return normalizeDjangoRoutePath(`${prefix.replace(/^\/+/u, "")}${route.replace(/^\/+/u, "")}`);
 }
 
 function sourceLooksDjangoUrls(

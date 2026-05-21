@@ -13147,6 +13147,7 @@ add_executable(headerapp include/headers.hpp)
         "    path('signup/', SignupView.as_view(), name='signup'),",
         "    path('admin/', admin.site.urls),",
         "    path('api/', include('api.urls')),",
+        "    path('slashless', include('api.urls')),",
         "    path('tuple-api/', include(('tuple.urls', 'tuple'), namespace='tuple')),",
         "    re_path(r'^legacy/(?P<slug>[-\\w]+)/$', views.legacy, name='legacy'),",
         "    url(r'^old/(?P<pk>\\d+)/$', views.old_detail),",
@@ -13231,6 +13232,11 @@ add_executable(headerapp include/headers.hpp)
         "Django route /api/status/",
         "Django route /api/v1/",
         "Django route /api/v1/ping/",
+        "Django route /slashless",
+        "Django route /slashlessusers/:pk/",
+        "Django route /slashlessstatus/",
+        "Django route /slashlessv1/",
+        "Django route /slashlessv1/ping/",
         "Django route /tuple-api/",
         "Django route /dependency-only/",
         "Django route /legacy/:slug/",
@@ -13249,10 +13255,16 @@ add_executable(headerapp include/headers.hpp)
       { path: "mysite/test_urls.py", command: "pytest" },
     ]);
     expect(byTitle("Django route /api/")?.entrypoints[0]?.symbol).toBe("api.urls");
+    expect(byTitle("Django route /slashless")?.entrypoints[0]?.symbol).toBe("api.urls");
     expect(byTitle("Django route /api/users/:pk/")?.entrypoints[0]).toMatchObject({
       path: "api/urls.py",
       symbol: "views.user_detail",
       route: "/api/users/:pk/",
+    });
+    expect(byTitle("Django route /slashlessusers/:pk/")?.entrypoints[0]).toMatchObject({
+      path: "api/urls.py",
+      symbol: "views.user_detail",
+      route: "/slashlessusers/:pk/",
     });
     expect(byTitle("Django route /api/users/:pk/")?.tests).toEqual([
       { path: "api/test_urls.py", command: "pytest" },
