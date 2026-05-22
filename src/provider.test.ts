@@ -22,6 +22,7 @@ const {
   parseReviewOutput,
   parseOrThrow,
   piThinkingLevel,
+  providerExitCode,
   providerJsonSchema,
 } = __testing;
 
@@ -363,6 +364,57 @@ describe("codexFailureMessage", () => {
   });
 });
 
+describe("providerExitCode", () => {
+  it("classifies auth failures from stdout-only provider output", () => {
+    expect(providerExitCode("Unauthorized: Wrong API Key", "")).toBe(4);
+    expect(providerExitCode("auth required", "")).toBe(4);
+    expect(providerExitCode("Incorrect API key provided", "")).toBe(4);
+    expect(providerExitCode("invalid_api_key", "")).toBe(4);
+    expect(providerExitCode("API key is required", "")).toBe(4);
+    expect(providerExitCode("API key not found", "")).toBe(4);
+    expect(providerExitCode("OPENAI_API_KEY is not set", "")).toBe(4);
+    expect(providerExitCode("insufficient permissions", "")).toBe(4);
+    expect(providerExitCode("api.responses.write scope is required", "")).toBe(4);
+    expect(providerExitCode("AuthenticationError: invalid credentials", "")).toBe(4);
+    expect(providerExitCode("authentication_error", "")).toBe(4);
+    expect(providerExitCode("AUTH_REQUIRED", "")).toBe(4);
+  });
+
+  it("classifies quota failures from stdout-only provider output", () => {
+    expect(providerExitCode("quota exceeded for this organization", "")).toBe(5);
+    expect(providerExitCode("You exceeded your current quota", "")).toBe(5);
+    expect(providerExitCode("insufficient_quota", "")).toBe(5);
+    expect(providerExitCode("quota_exceeded", "")).toBe(5);
+    expect(providerExitCode("RateLimitError: retry later", "")).toBe(5);
+    expect(providerExitCode("rate_limit_error", "")).toBe(5);
+  });
+
+  it("does not classify benign auth-looking stdout as auth failures", () => {
+    expect(providerExitCode("author: Jane", "")).toBe(1);
+    expect(providerExitCode("registered oauth-callback route", "")).toBe(1);
+    expect(providerExitCode("authority metadata loaded", "")).toBe(1);
+  });
+
+  it("does not classify generic rate-limiting discussion as quota failures", () => {
+    expect(providerExitCode("consider adding rate-limiting to this endpoint", "")).toBe(1);
+    expect(providerExitCode("document the rate limit policy for future work", "")).toBe(1);
+  });
+
+  it("keeps classifying real rate-limit failures", () => {
+    expect(providerExitCode("rate limit exceeded for this organization", "")).toBe(5);
+  });
+
+  it("keeps classifying stderr failures", () => {
+    expect(providerExitCode("", "please login before running the provider")).toBe(4);
+    expect(providerExitCode("", "expired API key")).toBe(4);
+    expect(providerExitCode("", "auth credentials not found")).toBe(4);
+  });
+
+  it("keeps generic failures when neither stream has a known signal", () => {
+    expect(providerExitCode("process exited unexpectedly", "")).toBe(1);
+  });
+});
+
 describe("parseAcpxAgent", () => {
   it("defaults null model to codex/null", () => {
     expect(parseAcpxAgent(null)).toEqual({ agent: "codex", agentModel: null });
@@ -673,6 +725,38 @@ describe("extractOpencodeJson", () => {
       return;
     }
     throw new Error("expected provider auth failure");
+  });
+
+  it("classifies opencode stderr-style error events as provider auth failures", () => {
+    const stdout = JSON.stringify({
+      type: "error",
+      error: { data: { message: "auth credentials not found" } },
+    });
+
+    try {
+      extractOpencodeJson(stdout);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ClawpatchError);
+      expect((err as ClawpatchError).exitCode).toBe(4);
+      return;
+    }
+    throw new Error("expected provider auth failure");
+  });
+
+  it("classifies opencode stderr-style error events as provider quota failures", () => {
+    const stdout = JSON.stringify({
+      type: "error",
+      error: { data: { message: "rate limit" } },
+    });
+
+    try {
+      extractOpencodeJson(stdout);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ClawpatchError);
+      expect((err as ClawpatchError).exitCode).toBe(5);
+      return;
+    }
+    throw new Error("expected provider quota failure");
   });
 });
 

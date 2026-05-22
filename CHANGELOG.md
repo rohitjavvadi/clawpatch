@@ -22,6 +22,7 @@
 - Improved bounded source grouping so large flat directories split repeated filename families like command, plugin, doctor, and runtime files into more coherent review slices.
 - Improved OpenCode malformed JSON diagnostics with output length, event kinds, and a bounded preview, thanks @rohitjavvadi.
 - Fixed finding signatures so equivalent evidence remains stable across re-reviews, thanks @rohitjavvadi.
+- Fixed provider exit-code classification for stdout-only authentication and quota failures, thanks @rohitjavvadi.
 - Fixed Express route mapping for aliased Router imports that follow block comment banners, thanks @rohitjavvadi.
 - Fixed Laravel route mapping to include array-style `Route::group` prefixes, thanks @rohitjavvadi.
 - Fixed Fastify route-object mapping to emit static method arrays while ignoring dynamic entries, thanks @rohitjavvadi.
