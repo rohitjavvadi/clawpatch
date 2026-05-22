@@ -8,6 +8,8 @@ Files:
 - `favicon.svg`: browser icon
 - `social-card.svg`: link preview card
 - `social-card.png`: raster link preview card for Open Graph/Twitter
+- `robots.txt`: crawler policy with sitemap reference
+- `sitemap.xml`: canonical single-page sitemap
 
 Preview:
 

@@ -19,6 +19,7 @@
     "lint": "oxlint . --config oxlint.json",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
+    "website:smoke": "node scripts/website-smoke.mjs",
     "test": "vitest run",
     "pack:smoke": "node scripts/package-smoke.mjs"
   },

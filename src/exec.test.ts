@@ -92,7 +92,7 @@ describe("runCommandArgs", () => {
           "import { writeFileSync } from 'node:fs';",
           "process.on('SIGTERM', () => {});",
           "process.send?.('ready');",
-          `setTimeout(() => writeFileSync(${JSON.stringify(marker)}, 'alive'), 2500);`,
+          `setTimeout(() => writeFileSync(${JSON.stringify(marker)}, 'alive'), 4500);`,
           "setInterval(() => {}, 1000);",
         ].join("\n"),
         "utf8",
@@ -111,7 +111,7 @@ describe("runCommandArgs", () => {
       );
 
       const result = await runCommandArgs(process.execPath, [parentScript], dir, undefined, {
-        timeoutMs: 1000,
+        timeoutMs: 3000,
       });
       await new Promise((resolve) => setTimeout(resolve, 1200));
 

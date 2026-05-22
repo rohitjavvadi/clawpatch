@@ -21,6 +21,7 @@
 - Added a release-prep checklist for auditing changelog, package metadata, and dry-run package contents without publishing.
 - Improved bounded source grouping so large flat directories split repeated filename families like command, plugin, doctor, and runtime files into more coherent review slices.
 - Fixed acpx provider error reporting by reading the terminal `result.stopReason` envelope and surfacing non-`end_turn` reasons as typed `ClawpatchError` codes (`agent-cancelled`, `agent-refused`, `agent-truncated`) instead of opaque `malformed-output`, thanks @coletebou.
+- Added website crawler artifacts and a static smoke check for metadata, anchors, and social-card dimensions, thanks @zack-dev-cm.
 - Improved OpenCode malformed JSON diagnostics with output length, event kinds, and a bounded preview, thanks @rohitjavvadi.
 - Fixed finding signatures so equivalent evidence remains stable across re-reviews, thanks @rohitjavvadi.
 - Fixed provider exit-code classification for stdout-only authentication and quota failures, thanks @rohitjavvadi.
