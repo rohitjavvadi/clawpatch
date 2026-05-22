@@ -27,6 +27,22 @@ type ServerRoute = {
   symbol: string | null;
 };
 
+type MountedRouteTarget = {
+  parent: string;
+  child: string;
+  prefix: string;
+};
+
+type MountedRouteTargets = {
+  mounts: MountedRouteTarget[];
+  unknownMountedTargets: Set<string>;
+};
+
+type RouteTargetPrefixes = {
+  prefixes: Map<string, string[]>;
+  unknownTargets: Set<string>;
+};
+
 const sourceRoots = ["src", "lib", "app", "server", "routes", "api"] as const;
 const sourceExtensions = ["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"] as const;
 const rootEntryNames = ["server", "app", "index", "main", "api"] as const;
@@ -163,9 +179,10 @@ function parseServerRoutes(
     if (targets.size === 0 && scopedFastifyRoutes.length === 0) {
       continue;
     }
-    routes.push(...directMethodRoutes(source, filePath, framework, targets));
+    const prefixes = mountedRouteTargetPrefixes(source, framework, targets);
+    routes.push(...directMethodRoutes(source, filePath, framework, targets, prefixes));
     if (framework === "express") {
-      routes.push(...expressRouteChains(source, filePath, targets));
+      routes.push(...expressRouteChains(source, filePath, targets, prefixes));
     } else if (framework === "fastify") {
       routes.push(...fastifyRouteObjects(source, filePath, targets));
       routes.push(...scopedFastifyRoutes);
@@ -179,6 +196,7 @@ function directMethodRoutes(
   filePath: string,
   framework: ServerFramework,
   targets: ReadonlySet<string>,
+  prefixes: RouteTargetPrefixes = emptyRouteTargetPrefixes(),
 ): ServerRoute[] {
   const routes: ServerRoute[] = [];
   routeMethodPattern.lastIndex = 0;
@@ -203,13 +221,16 @@ function directMethodRoutes(
       continue;
     }
     const callEnd = endOfCall(source, openParenIndex + 1);
-    routes.push({
-      framework,
-      filePath,
-      method: method.toUpperCase(),
-      routePath: routePath.value,
-      symbol: callEnd === null ? null : readHandlerSymbol(source, routePath.end, callEnd - 1),
-    });
+    const symbol = callEnd === null ? null : readHandlerSymbol(source, routePath.end, callEnd - 1);
+    for (const resolvedPath of routePathsForTarget(prefixes, target, routePath.value)) {
+      routes.push({
+        framework,
+        filePath,
+        method: method.toUpperCase(),
+        routePath: resolvedPath,
+        symbol,
+      });
+    }
   }
   return routes;
 }
@@ -265,6 +286,7 @@ function expressRouteChains(
   source: string,
   filePath: string,
   targets: ReadonlySet<string>,
+  prefixes: RouteTargetPrefixes = emptyRouteTargetPrefixes(),
 ): ServerRoute[] {
   const routes: ServerRoute[] = [];
   routeChainPattern.lastIndex = 0;
@@ -288,16 +310,344 @@ function expressRouteChains(
       continue;
     }
     for (const method of expressChainMethods(source, routePath.end)) {
-      routes.push({
-        framework: "express",
-        filePath,
-        method,
-        routePath: routePath.value,
-        symbol: null,
-      });
+      for (const resolvedPath of routePathsForTarget(prefixes, target, routePath.value)) {
+        routes.push({
+          framework: "express",
+          filePath,
+          method,
+          routePath: resolvedPath,
+          symbol: null,
+        });
+      }
     }
   }
   return routes;
+}
+
+function mountedRouteTargetPrefixes(
+  source: string,
+  framework: ServerFramework,
+  targets: ReadonlySet<string>,
+): RouteTargetPrefixes {
+  if (framework !== "express" && framework !== "hono") {
+    return emptyRouteTargetPrefixes();
+  }
+  const mounts =
+    framework === "express"
+      ? mountedTargets(source, targets, "use")
+      : mountedTargets(source, targets, "route");
+  return resolveMountedRouteTargetPrefixes(mounts, targets);
+}
+
+function mountedTargets(
+  source: string,
+  targets: ReadonlySet<string>,
+  method: "route" | "use",
+): MountedRouteTargets {
+  const mounts: MountedRouteTarget[] = [];
+  const unknownMountedTargets = new Set<string>();
+  const pattern = new RegExp(
+    `(^|[^A-Za-z0-9_$.])([A-Za-z_$][A-Za-z0-9_$]*)\\s*\\.\\s*${method}\\s*\\(`,
+    "gu",
+  );
+  pattern.lastIndex = 0;
+  for (const match of source.matchAll(pattern)) {
+    const matchIndex = match.index ?? 0;
+    const targetIndex = matchIndex + (match[1]?.length ?? 0);
+    if (isInsideCommentOrString(source, targetIndex)) {
+      continue;
+    }
+    const parent = match[2];
+    if (parent === undefined || !targets.has(parent)) {
+      continue;
+    }
+    const openParenIndex = matchIndex + match[0].lastIndexOf("(");
+    const callEnd = endOfCall(source, openParenIndex + 1);
+    if (callEnd === null) {
+      continue;
+    }
+    const args = splitTopLevelArguments(source.slice(openParenIndex + 1, callEnd - 1));
+    const literalPrefixes =
+      args[0] === undefined
+        ? null
+        : method === "use"
+          ? standaloneMountPrefixes(args[0])
+          : singletonMountPrefix(args[0]);
+    const pathlessExpressMount =
+      method === "use" &&
+      (isPathlessExpressMount(source, args) || isPathlessExpressChildMount(args, parent, targets));
+    const prefixes = literalPrefixes ?? (pathlessExpressMount ? ["/"] : null);
+    if (prefixes === null || !prefixes.every(isMountPrefix)) {
+      if (method === "route" || isLikelyDynamicMountPrefix(source, args[0]?.trim() ?? "")) {
+        const childArgs = method === "use" ? args.slice(1) : args.slice(1, 2);
+        for (const childArg of childArgs) {
+          const child = childArg.trim();
+          if (isSimpleIdentifier(child) && child !== parent && targets.has(child)) {
+            unknownMountedTargets.add(child);
+          }
+        }
+      }
+      continue;
+    }
+    const childArgs =
+      method === "use" ? args.slice(literalPrefixes === null ? 0 : 1) : args.slice(1, 2);
+    for (const childArg of childArgs) {
+      const child = childArg.trim();
+      if (!isSimpleIdentifier(child) || child === parent || !targets.has(child)) {
+        continue;
+      }
+      for (const prefix of prefixes) {
+        mounts.push({ parent, child, prefix });
+      }
+    }
+  }
+  return { mounts, unknownMountedTargets };
+}
+
+function resolveMountedRouteTargetPrefixes(
+  routeMounts: MountedRouteTargets,
+  targets: ReadonlySet<string>,
+): RouteTargetPrefixes {
+  const mountsByChild = new Map<string, MountedRouteTarget[]>();
+  for (const mount of routeMounts.mounts) {
+    mountsByChild.set(mount.child, [...(mountsByChild.get(mount.child) ?? []), mount]);
+  }
+  const resolved = new Map<string, string[]>();
+  const unknown = new Set<string>();
+  const resolving = new Set<string>();
+
+  const resolve = (target: string): string[] | null => {
+    if (unknown.has(target)) {
+      return null;
+    }
+    const cached = resolved.get(target);
+    if (cached !== undefined) {
+      return cached;
+    }
+    if (resolving.has(target)) {
+      return [];
+    }
+    resolving.add(target);
+    const prefixes: string[] = [];
+    for (const mount of mountsByChild.get(target) ?? []) {
+      const parentPrefixes = resolve(mount.parent);
+      if (parentPrefixes === null) {
+        unknown.add(target);
+        continue;
+      } else if (parentPrefixes.length === 0) {
+        prefixes.push(mount.prefix);
+      } else {
+        prefixes.push(...parentPrefixes.map((prefix) => joinRoutePaths(prefix, mount.prefix)));
+      }
+    }
+    resolving.delete(target);
+    const uniquePrefixes = [...new Set(prefixes)];
+    resolved.set(target, uniquePrefixes);
+    if (uniquePrefixes.length === 0 && routeMounts.unknownMountedTargets.has(target)) {
+      unknown.add(target);
+      return null;
+    }
+    return uniquePrefixes;
+  };
+
+  for (const target of targets) {
+    resolve(target);
+  }
+
+  return {
+    prefixes: new Map([...resolved].filter(([, prefixes]) => prefixes.length > 0)),
+    unknownTargets: unknown,
+  };
+}
+
+function isPathlessExpressChildMount(
+  args: string[],
+  parent: string,
+  targets: ReadonlySet<string>,
+): boolean {
+  if (args.length === 0) {
+    return false;
+  }
+  return args.every((arg) => {
+    const child = arg.trim();
+    return isSimpleIdentifier(child) && child !== parent && targets.has(child);
+  });
+}
+
+function isPathlessExpressMount(source: string, args: string[]): boolean {
+  const first = args[0]?.trim();
+  if (first === undefined || standaloneStringLiteral(first) !== null) {
+    return false;
+  }
+  if (isLikelyDynamicMountPrefix(source, first)) {
+    return false;
+  }
+  return (
+    isLikelyExpressMiddleware(first) ||
+    isDeclaredFunctionLike(source, first) ||
+    (isSimpleIdentifier(first) && isImportedIdentifier(source, first))
+  );
+}
+
+function isLikelyExpressMiddleware(value: string): boolean {
+  return (
+    /^(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][A-Za-z0-9_$]*\s*=>)/u.test(value) ||
+    /(?:auth|authorize|guard|middleware|handler|validate|validator|schema|session|cookie|cors|helmet|parser|logger|compress|ratelimit|limiter|json|urlencoded|static)/iu.test(
+      value,
+    )
+  );
+}
+
+function isLikelyDynamicMountPrefix(source: string, value: string): boolean {
+  if (/(?:prefix|base|path|tenant|mount|route)/iu.test(value)) {
+    return true;
+  }
+  if (!isSimpleIdentifier(value)) {
+    return false;
+  }
+  const escapedName = escapeRegExp(value);
+  const pattern = new RegExp(
+    `${declarationPrefix.replace("([A-Za-z_$][A-Za-z0-9_$]*)", escapedName)}`,
+    "gu",
+  );
+  for (const match of source.matchAll(pattern)) {
+    if (isInsideCommentOrString(source, match.index ?? 0)) {
+      continue;
+    }
+    const valueStart = (match.index ?? 0) + match[0].length;
+    const assignedValue = source.slice(valueStart, valueStart + 200).split(/[;\n]/u)[0] ?? "";
+    if (/(?:prefix|base|path|tenant|mount|route)/iu.test(assignedValue)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isImportedIdentifier(source: string, name: string): boolean {
+  const escapedName = escapeRegExp(name);
+  const patterns = [
+    new RegExp(String.raw`\bimport\s+${escapedName}\b`, "gu"),
+    new RegExp(String.raw`\bimport\s+\*\s+as\s+${escapedName}\b`, "gu"),
+    new RegExp(
+      String.raw`\bimport\s*\{[^}]*\b(?:${escapedName}|[A-Za-z_$][A-Za-z0-9_$]*\s+as\s+${escapedName})\b[^}]*\}\s*from\b`,
+      "gu",
+    ),
+    new RegExp(String.raw`\b(?:const|let|var)\s+${escapedName}\s*=\s*require\s*\(`, "gu"),
+    new RegExp(
+      String.raw`\b(?:const|let|var)\s*\{[^}]*\b(?:${escapedName}|[A-Za-z_$][A-Za-z0-9_$]*\s*:\s*${escapedName})\b[^}]*\}\s*=\s*require\s*\(`,
+      "gu",
+    ),
+  ];
+  for (const pattern of patterns) {
+    pattern.lastIndex = 0;
+    for (const match of source.matchAll(pattern)) {
+      if (!isInsideCommentOrString(source, match.index ?? 0)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function isDeclaredFunctionLike(source: string, name: string): boolean {
+  if (!isSimpleIdentifier(name)) {
+    return false;
+  }
+  const escapedName = escapeRegExp(name);
+  const patterns = [
+    new RegExp(`\\b(?:async\\s+)?function\\s+${escapedName}\\s*\\(`, "gu"),
+    new RegExp(
+      `${declarationPrefix.replace("([A-Za-z_$][A-Za-z0-9_$]*)", escapedName)}(?:async\\s*)?(?:function\\b|\\([^)]*\\)\\s*=>|[A-Za-z_$][A-Za-z0-9_$]*\\s*=>)`,
+      "gu",
+    ),
+  ];
+  for (const pattern of patterns) {
+    pattern.lastIndex = 0;
+    for (const match of source.matchAll(pattern)) {
+      if (!isInsideCommentOrString(source, match.index ?? 0)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function routePathsForTarget(
+  prefixes: RouteTargetPrefixes,
+  target: string,
+  routePath: string,
+): string[] {
+  const targetPrefixes = prefixes.prefixes.get(target) ?? [];
+  if (targetPrefixes.length > 0) {
+    return targetPrefixes.map((prefix) => joinRoutePaths(prefix, routePath));
+  }
+  if (prefixes.unknownTargets.has(target)) {
+    return [];
+  }
+  return [routePath];
+}
+
+function emptyRouteTargetPrefixes(): RouteTargetPrefixes {
+  return { prefixes: new Map(), unknownTargets: new Set() };
+}
+
+function singletonMountPrefix(source: string): string[] | null {
+  const literal = standaloneStringLiteral(source);
+  return literal === null ? null : [literal];
+}
+
+function standaloneMountPrefixes(source: string): string[] | null {
+  const literal = standaloneStringLiteral(source);
+  if (literal !== null) {
+    return [literal];
+  }
+  const arrayStart = skipWhitespace(source, 0);
+  if (source[arrayStart] !== "[") {
+    return null;
+  }
+  const arrayEnd = endOfArray(source, arrayStart + 1);
+  if (arrayEnd === null || nextRouteValueDelimiter(source, arrayEnd) !== null) {
+    return null;
+  }
+  const prefixes: string[] = [];
+  for (const element of splitTopLevelArguments(source.slice(arrayStart + 1, arrayEnd - 1))) {
+    const elementLiteral = standaloneStringLiteral(element);
+    if (elementLiteral === null) {
+      return null;
+    }
+    prefixes.push(elementLiteral);
+  }
+  return prefixes.length === 0 ? null : prefixes;
+}
+
+function standaloneStringLiteral(source: string): string | null {
+  const literal = readStringLiteralArgument(source, 0);
+  if (literal === null) {
+    return null;
+  }
+  return nextRouteValueDelimiter(source, literal.end) === null ? literal.value : null;
+}
+
+function isMountPrefix(path: string): boolean {
+  return path === "*" || path.startsWith("/");
+}
+
+function isSimpleIdentifier(value: string): boolean {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(value);
+}
+
+function joinRoutePaths(prefix: string, routePath: string): string {
+  const normalizedPrefix = prefix === "*" ? "/*" : prefix.replace(/\/+$/u, "") || "/";
+  if (normalizedPrefix === "/") {
+    return routePath;
+  }
+  if (routePath === "/") {
+    return normalizedPrefix;
+  }
+  if (routePath === "*") {
+    return `${normalizedPrefix}/*`;
+  }
+  return `${normalizedPrefix}/${routePath.replace(/^\/+/, "")}`;
 }
 
 function routeTargetNames(source: string, framework: ServerFramework): Set<string> {

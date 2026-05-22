@@ -2852,6 +2852,219 @@ describe("mapFeatures", () => {
     expect(routes.some((route) => route.endsWith(" /template-dynamic"))).toBe(false);
   });
 
+  it("preserves literal Express and Hono mount prefixes for child routes", async () => {
+    const root = await fixtureRoot("clawpatch-node-mounted-route-prefixes-");
+    await writeFixture(
+      root,
+      "package.json",
+      JSON.stringify(
+        {
+          name: "mounted-route-server",
+          dependencies: { express: "1.0.0", hono: "1.0.0" },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFixture(
+      root,
+      "src/express-mounted.ts",
+      [
+        "import express, { Router } from 'express';",
+        "import ensureLoggedIn from './auth';",
+        "",
+        "const app = express();",
+        "const apiApp = express();",
+        "const router = Router();",
+        "const nestedRouter = Router();",
+        "const middlewareRouter = Router();",
+        "const genericMiddlewareRouter = Router();",
+        "const asyncMiddlewareRouter = Router();",
+        "const expressionMiddlewareRouter = Router();",
+        "const importedMiddlewareRouter = Router();",
+        "const pathlessRouter = Router();",
+        "const directPathlessRouter = Router();",
+        "const firstPathlessRouter = Router();",
+        "const secondPathlessRouter = Router();",
+        "const arrayRouter = Router();",
+        "const wildcardRouter = Router();",
+        "const dynamicRouter = Router();",
+        "const dynamicParent = Router();",
+        "const dynamicChild = Router();",
+        "const authPathRouter = Router();",
+        "const tenantRouter = Router();",
+        "const memberRouter = Router();",
+        "const falseRouter = Router();",
+        "const notApp = createClient();",
+        "app.use('/api', router);",
+        "app.use(dynamicTenant, router);",
+        "app.use('/service', apiApp);",
+        "router.use('/v1', nestedRouter);",
+        "app.use('/middleware', requireAuth, middlewareRouter);",
+        "apiApp.use(mw, genericMiddlewareRouter);",
+        "apiApp.use(amw, asyncMiddlewareRouter);",
+        "apiApp.use(express.json(), expressionMiddlewareRouter);",
+        "apiApp.use(ensureLoggedIn, importedMiddlewareRouter);",
+        "apiApp.use(requireAuth, pathlessRouter);",
+        "apiApp.use(directPathlessRouter);",
+        "apiApp.use(firstPathlessRouter, secondPathlessRouter);",
+        "app.use(['/array', '/alt-array'], arrayRouter);",
+        "app.use('*', wildcardRouter);",
+        "app.use(dynamicPrefix, dynamicRouter);",
+        "app.use(dynamicBase, dynamicParent);",
+        "dynamicParent.use('/v1', dynamicChild);",
+        "app.use(authPath, authPathRouter);",
+        "app.use(tenant, tenantRouter);",
+        "server.app.use('/member', memberRouter);",
+        "notApp.use('/false', falseRouter);",
+        "router.get('/users', listUsers);",
+        "router.route('/reports').get(listReports);",
+        "nestedRouter.post('/teams', createTeam);",
+        "apiApp.delete('/sessions/:id', deleteSession);",
+        "middlewareRouter.get('/users', listMiddlewareUsers);",
+        "genericMiddlewareRouter.get('/generic-middleware-users', listGenericMiddlewareUsers);",
+        "asyncMiddlewareRouter.get('/async-middleware-users', listAsyncMiddlewareUsers);",
+        "expressionMiddlewareRouter.get('/json-users', listJsonUsers);",
+        "importedMiddlewareRouter.get('/imported-users', listImportedUsers);",
+        "pathlessRouter.get('/pathless-users', listPathlessUsers);",
+        "directPathlessRouter.get('/direct-pathless-users', listDirectPathlessUsers);",
+        "firstPathlessRouter.get('/first-pathless-users', listFirstPathlessUsers);",
+        "secondPathlessRouter.get('/second-pathless-users', listSecondPathlessUsers);",
+        "arrayRouter.get('/array-users', listArrayUsers);",
+        "wildcardRouter.get('/wildcard-users', listWildcardUsers);",
+        "dynamicRouter.get('/dynamic-users', dynamicUsers);",
+        'dynamicChild.get("/dynamic-child-users", dynamicChildUsers);',
+        'authPathRouter.get("/auth-path-users", authPathUsers);',
+        'tenantRouter.get("/tenant-users", tenantUsers);',
+        'memberRouter.get("/member-users", memberUsers);',
+        "falseRouter.get('/false-users', falseUsers);",
+        "function createClient() { return { use() {} }; }",
+        "function listUsers() {}",
+        "function listReports() {}",
+        "function createTeam() {}",
+        "function deleteSession() {}",
+        "function requireAuth() {}",
+        "function mw() {}",
+        "async function amw() {}",
+        "function listMiddlewareUsers() {}",
+        "function listGenericMiddlewareUsers() {}",
+        "function listAsyncMiddlewareUsers() {}",
+        "function listJsonUsers() {}",
+        "function listImportedUsers() {}",
+        "function listPathlessUsers() {}",
+        "function listDirectPathlessUsers() {}",
+        "function listFirstPathlessUsers() {}",
+        "function listSecondPathlessUsers() {}",
+        "function listArrayUsers() {}",
+        "function listWildcardUsers() {}",
+        "function dynamicUsers() {}",
+        "function dynamicChildUsers() {}",
+        "function authPathUsers() {}",
+        "function tenantUsers() {}",
+        "function memberUsers() {}",
+        "function falseUsers() {}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/hono-mounted.ts",
+      [
+        "import { Hono } from 'hono';",
+        "",
+        "const app = new Hono();",
+        "const subApp = new Hono();",
+        "const nestedSubApp = new Hono();",
+        "const dynamicSubApp = new Hono();",
+        "const falseSubApp = new Hono();",
+        "const client = createClient();",
+        "app.route('/api', subApp);",
+        "subApp.route('/v1', nestedSubApp);",
+        "app.route(dynamicPrefix, dynamicSubApp);",
+        "client.route('/false', falseSubApp);",
+        "subApp.get('/users', listUsers);",
+        "nestedSubApp.delete('/sessions/:id', deleteSession);",
+        "dynamicSubApp.get('/dynamic-users', dynamicUsers);",
+        "falseSubApp.get('/false-users', falseUsers);",
+        "function createClient() { return { route() {} }; }",
+        "function listUsers() {}",
+        "function deleteSession() {}",
+        "function dynamicUsers() {}",
+        "function falseUsers() {}",
+        "",
+      ].join("\n"),
+    );
+    await writeFixture(
+      root,
+      "src/express-dynamic-mw.ts",
+      [
+        "import express, { Router } from 'express';",
+        "",
+        "const app = express();",
+        "const router = Router();",
+        "const mw = dynamicPrefix;",
+        "app.use(mw, router);",
+        "router.get('/dynamic-mw-users', listDynamicMwUsers);",
+        "function listDynamicMwUsers() {}",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const titles = result.features.map((feature) => feature.title);
+
+    expect(titles).toEqual(
+      expect.arrayContaining([
+        "Express route GET /api/users",
+        "Express route GET /api/reports",
+        "Express route POST /api/v1/teams",
+        "Express route DELETE /service/sessions/:id",
+        "Express route GET /middleware/users",
+        "Express route GET /service/generic-middleware-users",
+        "Express route GET /service/async-middleware-users",
+        "Express route GET /service/json-users",
+        "Express route GET /service/imported-users",
+        "Express route GET /service/pathless-users",
+        "Express route GET /service/direct-pathless-users",
+        "Express route GET /service/first-pathless-users",
+        "Express route GET /service/second-pathless-users",
+        "Express route GET /array/array-users",
+        "Express route GET /alt-array/array-users",
+        "Express route GET /*/wildcard-users",
+        "Express route GET /member-users",
+        "Hono route GET /api/users",
+        "Hono route DELETE /api/v1/sessions/:id",
+      ]),
+    );
+    expect(titles).not.toContain("Express route GET /users");
+    expect(titles).not.toContain("Express route GET /reports");
+    expect(titles).not.toContain("Express route POST /v1/teams");
+    expect(titles).not.toContain("Express route DELETE /sessions/:id");
+    expect(titles).not.toContain("Express route GET /false/false-users");
+    expect(titles).not.toContain("Express route GET /generic-middleware-users");
+    expect(titles).not.toContain("Express route GET /async-middleware-users");
+    expect(titles).not.toContain("Express route GET /json-users");
+    expect(titles).not.toContain("Express route GET /imported-users");
+    expect(titles).not.toContain("Express route GET /pathless-users");
+    expect(titles).not.toContain("Express route GET /direct-pathless-users");
+    expect(titles).not.toContain("Express route GET /first-pathless-users");
+    expect(titles).not.toContain("Express route GET /second-pathless-users");
+    expect(titles).not.toContain("Express route GET /array-users");
+    expect(titles).not.toContain("Express route GET /wildcard-users");
+    expect(titles).not.toContain("Express route GET /dynamic-users");
+    expect(titles).not.toContain("Express route GET /dynamic-child-users");
+    expect(titles).not.toContain("Express route GET /auth-path-users");
+    expect(titles).not.toContain("Express route GET /dynamic-mw-users");
+    expect(titles).not.toContain("Express route GET /tenant-users");
+    expect(titles).not.toContain("Express route GET /member/member-users");
+    expect(titles).not.toContain("Express route GET /v1/dynamic-child-users");
+    expect(titles).not.toContain("Hono route GET /users");
+    expect(titles).not.toContain("Hono route GET /dynamic-users");
+    expect(titles).not.toContain("Hono route DELETE /v1/sessions/:id");
+    expect(titles).not.toContain("Hono route GET /false/false-users");
+  });
+
   it("keeps index route tests scoped to their route directory", async () => {
     const root = await fixtureRoot("clawpatch-node-server-index-route-tests-");
     await writeFixture(
