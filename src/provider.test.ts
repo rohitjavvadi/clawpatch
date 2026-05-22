@@ -613,7 +613,7 @@ describe("extractAcpxJson", () => {
 
     expectStopReasonError(() => extractAcpxJson(stdout), {
       code: "agent-cancelled",
-      exitCode: 6,
+      exitCode: 1,
       stopReason: "cancelled",
     });
   });
@@ -623,7 +623,7 @@ describe("extractAcpxJson", () => {
 
     expectStopReasonError(() => extractAcpxJson(stdout), {
       code: "agent-refused",
-      exitCode: 7,
+      exitCode: 1,
       stopReason: "refusal",
     });
   });
@@ -638,6 +638,16 @@ describe("extractAcpxJson", () => {
       code: "agent-truncated",
       exitCode: 8,
       stopReason: "max_tokens",
+    });
+  });
+
+  it("surfaces stopReason max_turn_requests as agent-truncated", () => {
+    const stdout = terminalEnvelope("max_turn_requests");
+
+    expectStopReasonError(() => extractAcpxJson(stdout), {
+      code: "agent-truncated",
+      exitCode: 8,
+      stopReason: "max_turn_requests",
     });
   });
 

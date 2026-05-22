@@ -1055,18 +1055,20 @@ function buildAcpxPrompt(prompt: string, schema: object, permission: "read" | "a
 // Source: acpx/src/runtime/engine/manager.ts emits the terminal JSON-RPC
 // response `{"jsonrpc":"2.0","id":N,"result":{"stopReason":<reason>,...}}`
 // for every `session/prompt`. Known reasons in acpx 0.8.0 / claude-agent-acp
-// 0.31.4 are `end_turn | cancelled | refusal | max_tokens` (plus
-// `max_turns_exceeded`, surfaced for the agent-driven turn loop).
+// 0.31.4 are `end_turn | cancelled | refusal | max_tokens | max_turn_requests`
+// (plus the older `max_turns_exceeded` spelling seen in agent-driven turn loops).
 const ACPX_STOP_REASON_CODES: Record<string, string> = {
   cancelled: "agent-cancelled",
   refusal: "agent-refused",
   max_tokens: "agent-truncated",
+  max_turn_requests: "agent-truncated",
   max_turns_exceeded: "agent-truncated",
 };
 const ACPX_STOP_EXIT_CODES: Record<string, number> = {
-  cancelled: 6,
-  refusal: 7,
+  cancelled: 1,
+  refusal: 1,
   max_tokens: 8,
+  max_turn_requests: 8,
   max_turns_exceeded: 8,
 };
 
