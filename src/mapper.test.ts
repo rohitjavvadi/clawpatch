@@ -13412,7 +13412,53 @@ add_executable(headerapp include/headers.hpp)
 
     expect(project.detected.commands.test).toBe("pytest");
     expect(suite?.ownedFiles).toEqual([{ path: "test_app.py", reason: "pytest file" }]);
+    expect(suite?.contextFiles).toEqual([
+      { path: "pyproject.toml", reason: "python target runtime metadata" },
+      { path: "test_app.py", reason: "nearby test" },
+    ]);
+    expect(suite?.contextFiles).not.toContainEqual({
+      path: ".python-version",
+      reason: "python target runtime metadata",
+    });
+    expect(suite?.contextFiles).not.toContainEqual({
+      path: "runtime.txt",
+      reason: "python target runtime metadata",
+    });
     expect(suite?.tests).toEqual([{ path: "test_app.py", command: "pytest" }]);
+  });
+
+  it("threads Python runtime metadata into standalone pytest suites", async () => {
+    const root = await fixtureRoot("clawpatch-python-test-runtime-context-");
+    await writeFixture(root, "pyproject.toml", '[project]\nname = "runtime-tests"\n');
+    await writeFixture(root, ".python-version", "3.14\n");
+    await writeFixture(root, "runtime.txt", "python-3.14\n");
+    await writeFixture(
+      root,
+      "tests/test_pep758.py",
+      [
+        "def test_pep758_exception_group():",
+        "    try:",
+        "        int('x')",
+        "    except TypeError, ValueError:",
+        "        assert True",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const suite = result.features.find((feature) => feature.title === "Python test suite tests");
+
+    expect(suite?.contextFiles).toContainEqual({
+      path: ".python-version",
+      reason: "python target runtime metadata",
+    });
+    expect(suite?.contextFiles).toContainEqual({
+      path: "runtime.txt",
+      reason: "python target runtime metadata",
+    });
+    expect(suite?.ownedFiles).toEqual([{ path: "tests/test_pep758.py", reason: "pytest file" }]);
+    expect(suite?.tests).toEqual([{ path: "tests/test_pep758.py", command: "pytest" }]);
   });
 
   it("maps Flask routes under web source roots", async () => {

@@ -190,7 +190,7 @@ export async function pythonSeeds(root: string): Promise<FeatureSeed[]> {
     });
   }
 
-  for (const test of standaloneTestSuites(testFiles, testCommand)) {
+  for (const test of standaloneTestSuites(testFiles, testCommand, runtimeContextFiles)) {
     seeds.push(test);
   }
 
@@ -1666,7 +1666,11 @@ function fastApiRouteTrustBoundaries(route: FastApiRoute): FeatureSeed["trustBou
   return boundaries;
 }
 
-function standaloneTestSuites(testFiles: string[], command: string | null): FeatureSeed[] {
+function standaloneTestSuites(
+  testFiles: string[],
+  command: string | null,
+  runtimeContextFiles: SeedFileRef[],
+): FeatureSeed[] {
   if (testFiles.length === 0) {
     return [];
   }
@@ -1685,7 +1689,7 @@ function standaloneTestSuites(testFiles: string[], command: string | null): Feat
     route: null,
     command: null,
     ownedFiles: group.files.map((path) => ({ path, reason: "pytest file" })),
-    contextFiles: [],
+    contextFiles: [...runtimeContextFiles],
     tests: group.files.map((path) => ({ path, command })),
     tags: ["python", "test"],
     trustBoundaries: [],
