@@ -14059,6 +14059,38 @@ add_executable(headerapp include/headers.hpp)
     });
   });
 
+  it("adds Python target runtime metadata to source review context", async () => {
+    const root = await fixtureRoot("clawpatch-python-runtime-context-");
+    await writeFixture(root, ".python-version", "3.14\n");
+    await writeFixture(
+      root,
+      "pyproject.toml",
+      '[project]\nname = "pep758-demo"\nrequires-python = ">=3.14"\n',
+    );
+    await writeFixture(
+      root,
+      "main.py",
+      [
+        "def parse(value):",
+        "    try:",
+        "        return float(value)",
+        "    except TypeError, ValueError:",
+        "        return 0",
+        "",
+      ].join("\n"),
+    );
+
+    const project = await detectProject(root);
+    const result = await mapFeatures(root, project, []);
+    const source = result.features.find((feature) => feature.title === "Python source root");
+
+    expect(source?.ownedFiles).toEqual([{ path: "main.py", reason: "source group root" }]);
+    expect(source?.contextFiles).toEqual([
+      { path: "pyproject.toml", reason: "python target runtime metadata" },
+      { path: ".python-version", reason: "python target runtime metadata" },
+    ]);
+  });
+
   it("uses Hatch pytest commands in mapped Python features", async () => {
     const root = await fixtureRoot("clawpatch-python-hatch-map-");
     await writeFixture(

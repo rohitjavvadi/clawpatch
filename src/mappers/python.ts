@@ -67,6 +67,14 @@ const projectMetadataFiles = [
   "setup.cfg",
   "requirements.txt",
 ] as const;
+const runtimeMetadataFiles = [
+  "pyproject.toml",
+  "setup.py",
+  "setup.cfg",
+  ".python-version",
+  "runtime.txt",
+  ".tool-versions",
+] as const;
 const sourceGroupMaxOwnedFiles = 12;
 const sourceGroupMaxTests = 8;
 const flaskRootEntryFiles = [
@@ -83,6 +91,7 @@ export async function pythonSeeds(root: string): Promise<FeatureSeed[]> {
   }
   const metadata = await readPythonProjectMetadata(root);
   const metadataFiles = await pythonMetadataFiles(root);
+  const runtimeContextFiles = await pythonRuntimeContextFiles(root);
   const testCommand = await pythonTestCommand(root, metadata);
   const testFiles = await pythonTestFiles(root);
   const seeds: FeatureSeed[] = [];
@@ -129,7 +138,10 @@ export async function pythonSeeds(root: string): Promise<FeatureSeed[]> {
         resolved.entryPath === script.metadataPath
           ? [{ path: script.metadataPath, reason: "console script metadata" }]
           : [{ path: resolved.entryPath, reason: "console script source" }],
-      contextFiles: tests.map((test) => ({ path: test.path, reason: "associated test" })),
+      contextFiles: [
+        ...runtimeContextFiles,
+        ...tests.map((test) => ({ path: test.path, reason: "associated test" })),
+      ],
       tests,
       tags: ["python", "cli"],
       trustBoundaries: ["user-input", "filesystem", "process-exec"],
@@ -166,7 +178,10 @@ export async function pythonSeeds(root: string): Promise<FeatureSeed[]> {
       route: null,
       command: null,
       ownedFiles: group.files.map((path) => ({ path, reason: `source group ${group.label}` })),
-      contextFiles: tests.map((test) => ({ path: test.path, reason: "associated test" })),
+      contextFiles: [
+        ...runtimeContextFiles,
+        ...tests.map((test) => ({ path: test.path, reason: "associated test" })),
+      ],
       tests,
       tags: ["python", "source-group"],
       trustBoundaries: packageTrustBoundaries(group.label),
@@ -225,6 +240,16 @@ async function pythonMetadataFiles(root: string): Promise<string[]> {
   for (const path of projectMetadataFiles) {
     if (await pathExists(join(root, path))) {
       files.push(path);
+    }
+  }
+  return files;
+}
+
+async function pythonRuntimeContextFiles(root: string): Promise<SeedFileRef[]> {
+  const files: SeedFileRef[] = [];
+  for (const path of runtimeMetadataFiles) {
+    if (await pathExists(join(root, path))) {
+      files.push({ path, reason: "python target runtime metadata" });
     }
   }
   return files;
@@ -396,6 +421,7 @@ async function djangoRouteSeeds(
     ...(await rootPythonSourceFiles(root)),
     ...(await walk(root, await pythonSourceRoots(root))).filter(isReviewablePythonSourceFile),
   ]);
+  const runtimeContextFiles = await pythonRuntimeContextFiles(root);
   const seeds: FeatureSeed[] = [];
   const routesByFile = new Map<string, DjangoRoute[]>();
   for (const filePath of routeFiles) {
@@ -430,7 +456,10 @@ async function djangoRouteSeeds(
           route: expanded.routePath,
           command: null,
           ownedFiles: [{ path: expanded.filePath, reason: "Django URL route declaration" }],
-          contextFiles: tests.map((test) => ({ path: test.path, reason: "associated test" })),
+          contextFiles: [
+            ...runtimeContextFiles,
+            ...tests.map((test) => ({ path: test.path, reason: "associated test" })),
+          ],
           tests,
           tags: ["python", "django", "route"],
           trustBoundaries: djangoRouteTrustBoundaries(expanded),
@@ -1033,6 +1062,7 @@ async function fastApiRouteSeeds(
     ...(await rootPythonSourceFiles(root)),
     ...(await walk(root, await pythonSourceRoots(root))).filter(isReviewablePythonSourceFile),
   ]);
+  const runtimeContextFiles = await pythonRuntimeContextFiles(root);
   const seeds: FeatureSeed[] = [];
   for (const filePath of routeFiles) {
     const source = await readFile(join(root, filePath), "utf8");
@@ -1058,7 +1088,10 @@ async function fastApiRouteSeeds(
         ownedFiles: [
           { path: route.filePath, reason: `FastAPI route handler ${route.functionName}` },
         ],
-        contextFiles: tests.map((test) => ({ path: test.path, reason: "associated test" })),
+        contextFiles: [
+          ...runtimeContextFiles,
+          ...tests.map((test) => ({ path: test.path, reason: "associated test" })),
+        ],
         tests,
         tags: ["python", "fastapi", "route"],
         trustBoundaries: fastApiRouteTrustBoundaries(route),
@@ -1255,6 +1288,7 @@ async function flaskRouteSeeds(
 ): Promise<FeatureSeed[]> {
   const hasFlaskDependency = await pythonDependencyHas(root, "flask");
   const routeFiles = await flaskRouteFiles(root);
+  const runtimeContextFiles = await pythonRuntimeContextFiles(root);
   const seeds: FeatureSeed[] = [];
   for (const filePath of routeFiles) {
     const source = await readFile(join(root, filePath), "utf8");
@@ -1276,7 +1310,10 @@ async function flaskRouteSeeds(
         route: `${methodLabel} ${route.routePath}`,
         command: null,
         ownedFiles: [{ path: route.filePath, reason: `Flask route handler ${route.functionName}` }],
-        contextFiles: tests.map((test) => ({ path: test.path, reason: "associated test" })),
+        contextFiles: [
+          ...runtimeContextFiles,
+          ...tests.map((test) => ({ path: test.path, reason: "associated test" })),
+        ],
         tests,
         tags: ["python", "flask", "route"],
         trustBoundaries: flaskRouteTrustBoundaries(route),
